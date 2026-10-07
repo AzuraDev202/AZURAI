@@ -98,6 +98,7 @@ class MigrationTests(unittest.TestCase):
         import os
         import subprocess
         from psycopg.conninfo import conninfo_to_dict
+        from psycopg import sql
         migrate(self.source, self.store)
         destination = Path(self.directory.name) / 'backup.dump'
         backup(destination, self.store)
@@ -113,10 +114,11 @@ class MigrationTests(unittest.TestCase):
             env['PGDATABASE' if key == 'dbname' else 'PG' + key.upper()] = value
         with self.store.connect() as db:
             schema = db.execute('SELECT current_schema()').fetchone()[0]
-            db.execute('TRUNCATE TABLE users CASCADE')
-        subprocess.run(['pg_restore', '--data-only', '--no-owner', '--no-acl', '--exit-on-error',
+            db.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+        result = subprocess.run(['pg_restore', '--no-owner', '--no-acl', '--exit-on-error',
                         '--schema', schema, '--dbname', settings['dbname'], str(destination)],
-                       env=env, capture_output=True, check=True)
+                       env=env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual(self.store.authenticate('alice', 'test-password')['id'], 42)
         with self.store.connect() as db:
             self.assertEqual(db.execute('SELECT png FROM images').fetchone()[0], b'\x89PNG\x00\xff')
