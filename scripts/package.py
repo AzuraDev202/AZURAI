@@ -6,16 +6,24 @@ import os
 import zipfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-FILES = ["app.py", "index.html", "studio.css", "studio.js", "backend.py", "models.json", "requirements.txt", "setup.ps1", "run.ps1",
-         "package.py", "README.md", "LICENSE", ".gitignore", "tests/test_backend.py", "tests/test_api.py"]
+ROOT = Path(__file__).resolve().parents[1]
+FILES = [
+    "azurai/__init__.py", "azurai/__main__.py", "azurai/paths.py",
+    "azurai/api.py", "azurai/backend.py", "azurai/auth.py", "azurai/features.py", "azurai/workspace.py",
+    "frontend/index.html", "frontend/assets/css/studio.css", "frontend/assets/js/studio.js",
+    "frontend/assets/js/workspace.js",
+    "frontend/assets/css/dashboard.css",
+    "config/models.json", "requirements.txt", "setup.ps1", "run.ps1",
+    "scripts/setup.ps1", "scripts/run.ps1", "scripts/package.py",
+    "README.md", "LICENSE", ".gitignore", "tests/test_backend.py", "tests/test_api.py", "tests/test_auth.py",
+]
 
 
 def build_archive(destination, include_models=True, include_cache=False):
     destination = Path(destination).resolve()
     files = [ROOT / name for name in FILES]
     if include_models:
-        registry = json.loads((ROOT / "models.json").read_text(encoding="utf-8"))
+        registry = json.loads((ROOT / "config" / "models.json").read_text(encoding="utf-8"))
         for entry in registry:
             model = (ROOT / entry["path"]).resolve()
             if not model.is_relative_to(ROOT):

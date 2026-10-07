@@ -13,7 +13,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from safetensors import SafetensorError
 
-from backend import (
+from . import auth, workspace
+from .backend import (
     AUTO,
     MEMORY_MODES,
     PRECISIONS,
@@ -22,6 +23,8 @@ from backend import (
     hardware,
     memory_policy,
 )
+from .features import discover_features
+from .paths import FRONTEND_DIR
 
 SERVICE = InferenceService()
 DEFAULT_OFFLINE = False
@@ -56,31 +59,111 @@ class Generation(Settings):
     seed: int = Field(default=-1, ge=-1, le=2147483647)
 
 
+class Credentials(BaseModel):
+    username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_]+$")
+    password: str = Field(min_length=8, max_length=128)
+
+
+class ProjectData(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=1000)
+
+
+class ProjectImage(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+
+
+class Preferences(Generation):
+    prompt: str = ""
+
+
 @app.middleware("http")
 async def local_only(request: Request, call_next):
     origin = request.headers.get("origin")
     if request.url.hostname not in ("localhost", "127.0.0.1") or (
             origin and origin != str(request.base_url).rstrip("/")):
         return JSONResponse({"detail": "Hãy truy cập giao diện AZURAI qua localhost."}, status_code=403)
-    response = await call_next(request)
+    public_auth = {"/api/auth/session", "/api/auth/login", "/api/auth/register", "/api/auth/logout"}
+    if request.url.path.startswith("/api/") and request.url.path not in public_auth:
+        request.state.user = auth.STORE.session_user(request.cookies.get(auth.COOKIE))
+        if not request.state.user:
+            response = JSONResponse({"detail": "Vui lòng đăng nhập để sử dụng Studio."}, status_code=401)
+        else:
+            response = await call_next(request)
+    else:
+        response = await call_next(request)
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 
 
+def signed_in(user, request):
+    auth.STORE.logout(request.cookies.get(auth.COOKIE))
+    token = auth.STORE.create_session(user)
+    response = JSONResponse({"user": user})
+    response.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_SECONDS,
+                        httponly=True, samesite="strict", secure=request.url.scheme == "https")
+    return response
+
+
+@app.get("/api/auth/session")
+def session(request: Request):
+    return {"user": auth.STORE.session_user(request.cookies.get(auth.COOKIE))}
+
+
+@app.post("/api/auth/register", status_code=201)
+def register(data: Credentials, request: Request):
+    if not auth.STORE.allow_attempt(request.client.host if request.client else "local"):
+        raise HTTPException(429, "Quá nhiều lần thử. Vui lòng chờ 10 phút.")
+    user = auth.STORE.register(data.username, data.password)
+    if not user:
+        raise HTTPException(409, "Tên đăng nhập đã được sử dụng.")
+    response = signed_in(user, request)
+    response.status_code = 201
+    return response
+
+
+@app.post("/api/auth/login")
+def login(data: Credentials, request: Request):
+    if not auth.STORE.allow_attempt(request.client.host if request.client else "local"):
+        raise HTTPException(429, "Quá nhiều lần thử. Vui lòng chờ 10 phút.")
+    user = auth.STORE.authenticate(data.username, data.password)
+    if not user:
+        raise HTTPException(401, "Tên đăng nhập hoặc mật khẩu không đúng.")
+    return signed_in(user, request)
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    auth.STORE.logout(request.cookies.get(auth.COOKIE))
+    response = JSONResponse({"user": None})
+    response.delete_cookie(auth.COOKIE, httponly=True, samesite="strict")
+    return response
+
+
 @app.get("/")
 def home():
-    return FileResponse(ROOT / "index.html")
+    return FileResponse(FRONTEND_DIR / "index.html")
 
 
 @app.get("/studio.js")
 def javascript():
-    return FileResponse(ROOT / "studio.js", media_type="text/javascript")
+    return FileResponse(FRONTEND_DIR / "assets" / "js" / "studio.js", media_type="text/javascript")
 
 
 @app.get("/studio.css")
 def stylesheet():
-    return FileResponse(ROOT / "studio.css", media_type="text/css")
+    return FileResponse(FRONTEND_DIR / "assets" / "css" / "studio.css", media_type="text/css")
+
+
+@app.get("/workspace.js")
+def workspace_javascript():
+    return FileResponse(FRONTEND_DIR / "assets" / "js" / "workspace.js", media_type="text/javascript")
+
+
+@app.get("/dashboard.css")
+def dashboard_stylesheet():
+    return FileResponse(FRONTEND_DIR / "assets" / "css" / "dashboard.css", media_type="text/css")
 
 
 @app.get("/api/options")
@@ -89,6 +172,67 @@ def options():
         {"id": entry["id"], "name": entry["name"]} for entry in SERVICE.models()],
         "modes": MEMORY_MODES, "precisions": PRECISIONS, "presets": SIZE_PRESETS,
         "offline": DEFAULT_OFFLINE}
+
+
+@app.get("/api/features")
+def features():
+    return {"features": discover_features()}
+
+
+@app.get("/api/preferences")
+def preferences(request: Request):
+    return {"preferences": workspace.preferences(request.state.user["id"]) or
+            Preferences(offline=DEFAULT_OFFLINE).model_dump()}
+
+
+@app.put("/api/preferences")
+def save_preferences(data: Preferences, request: Request):
+    if data.selection not in [AUTO, *[entry["id"] for entry in SERVICE.models()]]:
+        raise HTTPException(400, "Mô hình đã chọn không còn tồn tại.")
+    return {"preferences": workspace.preferences(request.state.user["id"], data.model_dump())}
+
+
+@app.get("/api/projects")
+def projects(request: Request):
+    return {"projects": workspace.projects(request.state.user["id"])}
+
+
+@app.post("/api/projects", status_code=201)
+def create_project(data: ProjectData, request: Request):
+    if not data.name.strip():
+        raise HTTPException(400, "Hãy nhập tên dự án.")
+    return {"id": workspace.create(request.state.user["id"], data.name.strip(), data.description.strip())}
+
+
+@app.put("/api/projects/{project_id}")
+def rename_project(project_id: str, data: ProjectData, request: Request):
+    if not data.name.strip():
+        raise HTTPException(400, "Hãy nhập tên dự án.")
+    if not workspace.modify(request.state.user["id"], project_id, "rename", name=data.name.strip(), description=data.description.strip()):
+        raise HTTPException(404, "Không tìm thấy dự án.")
+    return {"ok": True}
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: str, request: Request):
+    if not workspace.modify(request.state.user["id"], project_id, "delete"):
+        raise HTTPException(404, "Không tìm thấy dự án.")
+    return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/images")
+def add_project_image(project_id: str, data: ProjectImage, request: Request):
+    library_image(data.filename)
+    if not workspace.modify(request.state.user["id"], project_id, "add", filename=data.filename):
+        raise HTTPException(404, "Không tìm thấy dự án.")
+    return {"ok": True}
+
+
+@app.delete("/api/projects/{project_id}/images/{filename}")
+def remove_project_image(project_id: str, filename: str, request: Request):
+    if not workspace.modify(request.state.user["id"], project_id, "remove", filename=filename):
+        raise HTTPException(404, "Không tìm thấy dự án.")
+    return {"ok": True}
 
 
 @app.get("/api/device")
@@ -209,7 +353,7 @@ def image(job: str):
 @app.get("/api/library")
 def library():
     outputs = ROOT / "outputs"
-    images = sorted(outputs.glob("*.png"), key=lambda path: path.stat().st_mtime, reverse=True)[:60]
+    images = sorted(outputs.glob("*.png"), key=lambda path: path.stat().st_mtime, reverse=True)
     items = []
     for path in images:
         metadata = {}
@@ -222,7 +366,9 @@ def library():
         if not isinstance(metadata, dict):
             metadata = {}
         items.append({"filename": path.name, "prompt": str(metadata.get("prompt", "")),
-                      "width": metadata.get("width"), "height": metadata.get("height")})
+                      "width": metadata.get("width"), "height": metadata.get("height"),
+                      "created": path.stat().st_mtime,
+                      "parameters": {key: metadata[key] for key in ["negative", "seed", "steps", "guidance", "width", "height"] if key in metadata}})
     return {"images": items}
 
 
@@ -235,7 +381,8 @@ def library_image(filename: str):
     return FileResponse(path, media_type="image/png", filename=path.name)
 
 
-if __name__ == "__main__":
+def main():
+    global SERVICE, DEFAULT_OFFLINE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path)
     parser.add_argument("--config")

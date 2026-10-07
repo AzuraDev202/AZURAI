@@ -6,7 +6,7 @@ from unittest.mock import patch
 import torch
 from safetensors import SafetensorError
 
-from backend import AUTO, InferenceService, memory_policy
+from azurai.backend import AUTO, InferenceService, memory_policy
 
 
 class PolicyTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class ServiceTests(unittest.TestCase):
     def test_offline_rejects_missing_components(self):
         service = InferenceService()
         with patch.object(service, "models", return_value=[{"id": "test", "path": Path("test")}]), \
-             patch("backend.validate_checkpoint"), patch.object(service, "assets", return_value=["tokenizer/vocab.json"]), \
+             patch("azurai.backend.validate_checkpoint"), patch.object(service, "assets", return_value=["tokenizer/vocab.json"]), \
              self.assertRaisesRegex(ValueError, "offline"):
             service.select(AUTO, offline=True)
 
@@ -54,7 +54,7 @@ class ServiceTests(unittest.TestCase):
         service = InferenceService()
         host = {"cuda": False, "ram_free_gb": 8, "ram_total_gb": 16}
         with patch.object(service, "select", return_value=({}, "manual")), \
-             patch("backend.hardware", return_value=host), \
+             patch("azurai.backend.hardware", return_value=host), \
              patch.object(service, "load", side_effect=torch.cuda.OutOfMemoryError("test")), \
              patch.object(service, "unload") as unload:
             with self.assertRaisesRegex(ValueError, "384×384"):

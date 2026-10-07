@@ -1,6 +1,7 @@
 [
   {
     "id": "sd15",
+    "task": "text-to-image",
     "name": "Stable Diffusion 1.5",
     "path": "models/text2img/v1-5-pruned-emaonly.safetensors",
     "config": "stable-diffusion-v1-5/stable-diffusion-v1-5",

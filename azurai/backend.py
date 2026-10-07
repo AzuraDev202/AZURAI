@@ -24,7 +24,8 @@ from PIL.PngImagePlugin import PngInfo
 from safetensors import SafetensorError, safe_open
 from transformers import CLIPImageProcessor
 
-ROOT = Path(__file__).resolve().parent
+from .paths import CONFIG_DIR, ROOT
+
 CACHE = ROOT / ".cache" / "huggingface"
 AUTO = "Tự động"
 MEMORY_MODES = [AUTO, "Tiết kiệm VRAM", "Offload theo mô-đun", "CPU"]
@@ -110,18 +111,21 @@ class InferenceService:
         self.override_config = config
 
     def models(self):
-        registry = json.loads((ROOT / "models.json").read_text(encoding="utf-8"))
+        registry = json.loads((CONFIG_DIR / "models.json").read_text(encoding="utf-8"))
+        registry = [entry for entry in registry if entry.get("task", "text-to-image") == "text-to-image"]
         for entry in registry:
             entry["path"] = (ROOT / entry["path"]).resolve()
         known = {entry["path"] for entry in registry}
-        candidates = sorted((ROOT / "models").rglob("*.safetensors"))
+        candidates = sorted((ROOT / "models" / "text2img").rglob("*.safetensors"))
+        candidates += sorted((ROOT / "models").glob("*.safetensors"))
         if self.override_model:
             candidates.insert(0, self.override_model)
         for path in candidates:
             path = path.resolve()
             if path not in known:
                 registry.append({"id": str(path), "name": path.name, "path": path,
-                                 "config": self.override_config or registry[0]["config"]})
+                                 "config": self.override_config or (registry[0]["config"] if registry else
+                                            "stable-diffusion-v1-5/stable-diffusion-v1-5")})
                 known.add(path)
         if self.override_config:
             for entry in registry:
