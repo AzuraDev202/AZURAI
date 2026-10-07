@@ -25,7 +25,7 @@ AZURAI/
 ├── tests/                  # Kiểm thử API và backend
 ├── models/                 # Checkpoint, bao gồm các thư mục con
 ├── outputs/                # Ảnh và metadata được tạo
-├── data/                   # SQLite tài khoản (không đưa vào ZIP)
+├── data/                   # SQLite cũ và backup (không đưa vào ZIP)
 ├── .cache/                 # Cache mô hình (không đóng gói mặc định)
 ├── .venv/                  # Môi trường Python cục bộ
 ├── setup.ps1               # Lệnh tắt gọi scripts/setup.ps1
@@ -43,6 +43,10 @@ Mở PowerShell trong thư mục đã giải nén:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
+Copy-Item .env.example .env
+# Sửa .env: thay cả hai mật khẩu mẫu và chọn model Ollama đã cài.
+docker compose up -d --wait
+# Nếu có SQLite cũ, làm migration ở phần PostgreSQL trước khi chạy AZURAI.
 powershell -ExecutionPolicy Bypass -File .\run.ps1
 ```
 
@@ -50,15 +54,15 @@ Mở **http://127.0.0.1:7860**. Dừng bằng Ctrl+C. Script tạo `.venv` riên
 
 ## Trang chủ và tài khoản
 
-Thanh bên có 5 trang riêng: **Trang chủ** (lối tắt, số liệu thật, quy trình sáng tạo), **Tính năng** (nhóm mô hình), **Thư viện** (tìm kiếm, sắp xếp, tải PNG, dùng lại mô tả và thông số), **Dự án** (tạo/sửa/xóa bộ sưu tập, thêm/gỡ ảnh), **Cài đặt** (GPU, bộ nhớ, offline, chuẩn bị mô hình và cấu hình mặc định). Dự án và cấu hình mặc định lưu theo tài khoản trong SQLite; ảnh mới riêng theo tài khoản, ảnh cũ giữ quyền dùng chung. Xóa dự án hoặc gỡ ảnh khỏi dự án không xóa file PNG.
+Thanh bên có 5 trang riêng: **Trang chủ** (lối tắt, số liệu thật, quy trình sáng tạo), **Tính năng** (nhóm mô hình), **Thư viện** (tìm kiếm, sắp xếp, tải PNG, dùng lại mô tả và thông số), **Dự án** (tạo/sửa/xóa bộ sưu tập, thêm/gỡ ảnh), **Cài đặt** (GPU, bộ nhớ, offline, chuẩn bị mô hình và cấu hình mặc định). Dự án và cấu hình mặc định lưu theo tài khoản trong PostgreSQL; ảnh mới riêng theo tài khoản, ảnh cũ giữ quyền dùng chung. Xóa dự án hoặc gỡ ảnh khỏi dự án không xóa file PNG.
 
 Giao diện dashboard dùng nền tối, thanh bên rộng và thẻ màu lấy cảm hứng từ ảnh tham chiếu. Các công cụ giọng nói, nhạc và xuất bản video trong ảnh mẫu chưa có backend ở dự án này. Text to Video hiển thị trạng thái chưa hỗ trợ.
 
 Trang chủ có nút mở Studio, giới thiệu chức năng và tối đa 4 ảnh gần đây lấy từ thư viện trên máy. Bấm **Đăng nhập → Tạo tài khoản** trong lần sử dụng đầu tiên; tên đăng nhập gồm 3–32 chữ cái, chữ số hoặc dấu `_`, mật khẩu dài 8–128 ký tự. Sau đó dùng tên và mật khẩu để đăng nhập. Bấm biểu tượng tài khoản ở góc phải → **Đăng xuất** để kết thúc phiên.
 
-Studio và các API xử lý ảnh yêu cầu đăng nhập. Tài khoản được lưu trong `data/accounts.sqlite3`; mật khẩu băm bằng scrypt, mã phiên được băm trong cơ sở dữ liệu, cookie HttpOnly/SameSite Strict hết hạn sau 7 ngày và bị thu hồi khi đăng xuất. Dữ liệu tài khoản không được đưa vào Git hay ZIP. Không cần dịch vụ đăng nhập bên ngoài hoặc kết nối mạng để dùng tài khoản.
+Studio và các API xử lý ảnh yêu cầu đăng nhập. Tài khoản được lưu trong PostgreSQL; mật khẩu băm bằng scrypt, mã phiên được băm trong cơ sở dữ liệu, cookie HttpOnly/SameSite Strict hết hạn sau 7 ngày và bị thu hồi khi đăng xuất. Dữ liệu tài khoản không được đưa vào Git hay ZIP. Không cần dịch vụ đăng nhập bên ngoài; cần kết nối tới PostgreSQL đang chạy.
 
-Đây là tài khoản cho ứng dụng cục bộ: các tài khoản dùng chung mô hình và máy xử lý; database cách ly ảnh mới theo tài khoản. Thư mục `outputs/` chứa bản xuất trên máy, không phải cơ chế phân quyền. Đăng xuất không hủy tác vụ tạo ảnh đang chạy trên máy. Giữ file cơ sở dữ liệu nếu muốn giữ tài khoản khi cập nhật dự án.
+Đây là tài khoản cho ứng dụng cục bộ: các tài khoản dùng chung mô hình và máy xử lý; database cách ly ảnh mới theo tài khoản. Thư mục `outputs/` chứa bản xuất trên máy, không phải cơ chế phân quyền. Đăng xuất không hủy tác vụ tạo ảnh đang chạy trên máy. Giữ volume PostgreSQL và backup nếu muốn giữ tài khoản khi cập nhật dự án.
 
 ## Tự chọn mô hình và cấu hình
 
@@ -180,19 +184,38 @@ Mở **Phong cách của tôi** trong Studio để lưu mục tiêu sáng tạo,
 
 Sau khi tạo hoặc mở ảnh, nhập điều bạn thích/muốn thay đổi rồi chọn **Hợp ý tôi / Chưa hợp ý / Bỏ đánh giá**. Director nhận tối đa 8 phản hồi gần nhất cùng các thuộc tính thị giác của brief; yêu cầu cụ thể của ý tưởng hiện tại luôn được ưu tiên. Đây là đưa bộ nhớ vào ngữ cảnh LLM, **không phải huấn luyện lại model**. Tắt tham khảo phản hồi để dừng sử dụng chúng; **Quên phản hồi ảnh** xóa các đánh giá hiện hành. Hồ sơ, ảnh và snapshot lịch sử tạo vẫn được giữ. Có thể sửa hoặc xóa nội dung hồ sơ bất cứ lúc nào.
 
-### Database thống nhất: SQLite
+### Database thống nhất: PostgreSQL
 
-Dùng tiếp `data/accounts.sqlite3` để giữ tài khoản cũ. Database lưu tài khoản, phiên đăng nhập, dự án, cấu hình, brief nháp, hồ sơ, request/response Director, tác vụ tạo ảnh, thông số, brief đã duyệt/rà soát, ngữ cảnh cá nhân đã dùng, phản hồi **và bytes PNG (BLOB)**. Checkpoint và cache model vẫn là file vận hành, không đưa vào database. JSON/PNG trong `outputs/` là bản xuất tương thích, database là nguồn để mở và tải ảnh; xóa bản xuất không làm mất ảnh đã lưu trong database.
+Cài Docker Desktop, sao chép `.env.example` thành `.env`, thay mật khẩu mẫu ở cả hai dòng bằng cùng một mật khẩu và đặt `AZURAI_DIRECTOR_MODEL` đúng tên model đã cài. Mật khẩu có ký tự đặc biệt phải URL-encode trong URL. Chạy `docker compose up -d --wait`: PostgreSQL 17 chỉ mở cổng 5432 trên localhost và giữ dữ liệu trong volume `azurai_postgres`. Ứng dụng tự đọc `.env`; biến môi trường đã đặt được ưu tiên. Không commit `.env`.
 
-Schema mới bổ sung bảng, ghi migration phiên bản 2, bật WAL, foreign keys và busy timeout. Giữ nguyên tài khoản/dự án/cấu hình/brief cũ. Khi lần đầu mở mỗi thư mục outputs, ảnh cũ và JSON được nhập một lần, không xóa nguồn và không nhập trùng. Ảnh cũ vốn dùng chung tiếp tục dùng chung; không tự gán quyền sở hữu cho tài khoản đầu tiên. Ảnh mới, job, lịch sử và phản hồi riêng theo tài khoản. Ảnh cũ trong bản V1 chưa đi qua LLM sẽ được rà soát lại trước khi tạo ảnh mới.
+Có thể dùng PostgreSQL tự cài hoặc dịch vụ quản lý thay Docker: đặt `AZURAI_DATABASE_URL` dạng `postgresql://user:password@host:5432/database` (thêm `?sslmode=verify-full` và chứng chỉ phù hợp khi kết nối từ xa). Database phải tồn tại; tài khoản ứng dụng cần quyền tạo bảng trong schema dành riêng cho AZURAI. Thiếu URL hoặc mất kết nối sẽ báo lỗi, không chuyển ngầm về SQLite.
 
-Tác vụ được ghi xuống database trước khi chạy; sau khởi động lại, tác vụ dang dở được đánh dấu lỗi để tạo lại. Ảnh/tác vụ hoàn tất mở lại được dù mất trạng thái RAM hoặc file xuất. API `/api/history` trả 100 tác vụ gần nhất của tài khoản. Backup đúng cách bằng SQLite backup API, bao gồm dữ liệu WAL và ảnh:
+PostgreSQL lưu tài khoản, phiên đăng nhập, dự án, cấu hình, brief, hồ sơ, lịch sử Director, tác vụ, phản hồi và ảnh. Dữ liệu có cấu trúc dùng **JSONB**, bytes PNG dùng **BYTEA**; checkpoint/cache vẫn là file. Đây chưa phải tìm kiếm vector hoặc object storage. JSON/PNG trong `outputs/` là bản xuất, không phải nguồn dữ liệu chính. Tác vụ dang dở được đánh dấu lỗi sau khi khởi động lại. Khóa transaction bảo vệ cập nhật brief giữa các tab và giới hạn đăng nhập đồng thời.
+
+#### Chuyển SQLite cũ
+
+Dừng phiên bản AZURAI cũ và sao lưu `data/accounts.sqlite3` cùng file WAL/SHM nếu có. Chạy migration **trước lần chạy phiên bản mới**, tới PostgreSQL chưa có dữ liệu ứng dụng:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/backup.py data/backups/azurai-backup.sqlite3
+.\.venv\Scripts\python.exe scripts/migrate_sqlite.py data/accounts.sqlite3
+.\run.ps1
 ```
 
-Đích backup phải là tên mới. Để phục hồi, dừng AZURAI, sao lưu database hiện tại rồi dùng file backup thay thế `data/accounts.sqlite3`; không thay database khi server đang chạy. SQLite phù hợp ứng dụng cá nhân cục bộ hiện tại. Với triển khai nhiều máy/người dùng và kho ảnh lớn, nên chuyển sang PostgreSQL cho metadata và object storage cho media; bản này chưa triển khai hệ thống đó.
+Migration đọc SQLite ở chế độ chỉ đọc, giữ ID, mật khẩu đã băm, phiên, dự án, brief, hồ sơ, lịch sử, quyền sở hữu và bytes ảnh nếu các bảng tồn tại. Kiểm tra số bản ghi và bytes PNG; lỗi sẽ rollback toàn bộ dữ liệu nhập. Database đích đã có dữ liệu sẽ bị từ chối. SQLite V1 chưa có bảng ảnh vẫn được hỗ trợ; ảnh trong `outputs/` được nhập một lần và giữ quyền dùng chung như trước. Giữ nguyên nguồn để có thể quay lại phiên bản cũ; không chạy hai phiên bản ghi dữ liệu cùng lúc.
+
+#### Backup và phục hồi
+
+Cài PostgreSQL client cùng phiên bản chính với server hoặc mới hơn, thêm `pg_dump`/`pg_restore` vào PATH. Backup custom-format bao gồm toàn bộ database, kể cả ảnh và metadata:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/backup.py data/backups/azurai-backup.dump
+```
+
+Đích phải là tên mới. Để phục hồi, dừng AZURAI, tạo **database mới trống**, rồi dùng `pg_restore --no-owner --no-acl --exit-on-error -h HOST -U USER -d NEW_DATABASE data/backups/azurai-backup.dump`. Client hỏi mật khẩu; không ghi mật khẩu vào lệnh. Đổi `AZURAI_DATABASE_URL` sang database mới sau khi kiểm tra. Giữ backup cũ và volume gốc; `docker compose down -v` sẽ xóa volume dữ liệu.
+
+#### Kiểm thử
+
+Cài PyTorch và `requirements.txt`, đặt `AZURAI_TEST_DATABASE_URL` tới database PostgreSQL dành riêng cho kiểm thử (role cần quyền tạo/xóa schema), rồi chạy `python -m unittest discover -s tests -v`. Mỗi test tích hợp dùng schema riêng và dọn sạch sau khi chạy; thiếu URL sẽ skip các test này. GitHub Actions cung cấp PostgreSQL 17 và chạy đầy đủ test, gồm migration/rollback, JSONB/BYTEA, cách ly tài khoản, cập nhật brief đồng thời và backup. Inference thực tế vẫn cần checkpoint và Ollama trên máy người dùng.
 
 API mới có xác thực: `GET/PUT /api/profile`, `DELETE /api/profile/feedback`, `PUT /api/library/{filename}/feedback`, `GET /api/history`. Các API Director vẫn có xác thực và kiểm tra phiên bản brief để phát hiện xung đột giữa các tab.
 

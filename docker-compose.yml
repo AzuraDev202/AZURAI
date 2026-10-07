@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: azurai
+      POSTGRES_USER: azurai
+      POSTGRES_PASSWORD: ${AZURAI_POSTGRES_PASSWORD:?Set AZURAI_POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - azurai_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U azurai -d azurai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+volumes:
+  azurai_postgres:

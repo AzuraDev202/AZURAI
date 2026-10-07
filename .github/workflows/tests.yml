@@ -1,0 +1,34 @@
+name: PostgreSQL tests
+on: [push, pull_request]
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: azurai_test
+          POSTGRES_USER: azurai
+          POSTGRES_PASSWORD: test-only-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U azurai -d azurai_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      AZURAI_TEST_DATABASE_URL: postgresql://azurai:test-only-password@127.0.0.1:5432/azurai_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install matching PostgreSQL client
+        run: |
+          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/keyrings/postgresql.asc > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v

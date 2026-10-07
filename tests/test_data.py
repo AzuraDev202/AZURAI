@@ -1,21 +1,18 @@
 import json
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from azurai import auth, data, workspace
-from fixtures import brief
-from scripts.backup import backup
+from fixtures import brief, postgres_store
 
 
 class DataTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.path = Path(self.directory.name) / "accounts.sqlite3"
-        self.store = auth.AccountStore(self.path)
+        self.store = postgres_store(self)
         self.store_patch = patch.object(auth, "STORE", self.store)
         self.store_patch.start()
         self.addCleanup(self.store_patch.stop)
@@ -30,8 +27,8 @@ class DataTests(unittest.TestCase):
         self.assertEqual(workspace.projects(self.alice)[0]["name"], "Existing project")
         self.assertEqual(workspace.preferences(self.alice)["seed"], 42)
         with self.store.connect() as db:
-            self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], "wal")
-            self.assertEqual(db.execute("SELECT version FROM schema_migrations").fetchone()[0], 2)
+            self.assertEqual(db.execute("SELECT pg_typeof(metadata)::text FROM images LIMIT 0").description[0].name, "pg_typeof")
+            self.assertEqual(db.execute("SELECT version FROM schema_migrations").fetchone()[0], 3)
 
     def test_profiles_feedback_and_memory_are_account_scoped_and_optional(self):
         profile = data.Profile(style="cinematic", avoid="neon").model_dump()
@@ -55,7 +52,7 @@ class DataTests(unittest.TestCase):
         data.store_image("a.png", b"png-bytes", metadata, self.alice)
         self.assertEqual(data.image("a.png", self.alice)["png"], b"png-bytes")
         self.assertIsNone(data.image("a.png", self.bob))
-        self.assertEqual(json.loads(data.image("a.png", self.alice)["metadata"]), metadata)
+        self.assertEqual(data.image("a.png", self.alice)["metadata"], metadata)
         self.assertIsNone(data.image("../a.png", self.alice))
 
     def test_legacy_import_is_idempotent_and_shared_without_assigning_owner(self):
@@ -76,13 +73,10 @@ class DataTests(unittest.TestCase):
         data.recover_jobs()
         self.assertEqual(data.job("job", self.alice)["state"], "error")
         data.store_image("a.png", b"png", {}, self.alice)
-        destination = Path(self.directory.name) / "backup.sqlite3"
-        backup(destination)
-        with sqlite3.connect(destination) as db:
-            self.assertEqual(db.execute("SELECT png FROM images").fetchone()[0], b"png")
-            self.assertEqual(db.execute("SELECT state FROM generation_jobs").fetchone()[0], "error")
-        with self.assertRaises(FileExistsError):
-            backup(destination)
+        with self.store.connect() as db:
+            self.assertEqual(db.execute("SELECT png, pg_typeof(png)::text AS png_type, pg_typeof(metadata)::text AS metadata_type FROM images").fetchone(),
+                             {"png": b"png", "png_type": "bytea", "metadata_type": "jsonb"})
+
 
 
 if __name__ == "__main__":

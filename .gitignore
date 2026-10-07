@@ -8,3 +8,7 @@ data/
 *.zip
 *.part
 .ruff_cache/
+.env
+.env.*
+!.env.example
+*.dump

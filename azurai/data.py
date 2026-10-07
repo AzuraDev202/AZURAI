@@ -1,7 +1,9 @@
-"""Unified local application data in the existing SQLite account database."""
+"""Unified local application data in the PostgreSQL database."""
 import json
 import time
 from pathlib import Path
+
+from psycopg.types.json import Jsonb
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,35 +21,6 @@ class Profile(BaseModel):
     avoid: str = Field(default="", max_length=500)
 
 
-def initialize(db):
-    db.executescript("""
-        CREATE TABLE IF NOT EXISTS legacy_imports (path TEXT PRIMARY KEY, applied REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS creative_profiles (user_id INTEGER PRIMARY KEY REFERENCES users(id), value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS director_runs (
-            id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
-            phase TEXT NOT NULL, request TEXT NOT NULL, response TEXT NOT NULL, created REAL NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS generation_jobs (
-            id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
-            operation TEXT NOT NULL, parameters TEXT NOT NULL, creative TEXT,
-            state TEXT NOT NULL, progress REAL NOT NULL, message TEXT NOT NULL,
-            filename TEXT, created REAL NOT NULL, updated REAL NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS images (
-            filename TEXT PRIMARY KEY, user_id INTEGER REFERENCES users(id),
-            png BLOB NOT NULL, metadata TEXT NOT NULL, created REAL NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS image_feedback (
-            user_id INTEGER NOT NULL REFERENCES users(id), filename TEXT NOT NULL REFERENCES images(filename),
-            rating INTEGER NOT NULL CHECK(rating IN (-1, 0, 1)), note TEXT NOT NULL, updated REAL NOT NULL,
-            PRIMARY KEY(user_id, filename)
-        );
-        CREATE INDEX IF NOT EXISTS jobs_by_user ON generation_jobs(user_id, created DESC);
-        CREATE INDEX IF NOT EXISTS images_by_user ON images(user_id, created DESC);
-        CREATE INDEX IF NOT EXISTS director_runs_by_user ON director_runs(user_id, created DESC);
-        INSERT OR IGNORE INTO schema_migrations VALUES (2, unixepoch());
-    """)
 
 
 def connection():
@@ -56,12 +29,11 @@ def connection():
 
 def profile(user_id, value=None):
     with connection() as db:
-        initialize(db)
         if value is not None:
-            db.execute("INSERT INTO creative_profiles VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET value=excluded.value", (user_id, json.dumps(value)))
+            db.execute("INSERT INTO creative_profiles VALUES (%s, %s) ON CONFLICT(user_id) DO UPDATE SET value=excluded.value", (user_id, Jsonb(value)))
             db.commit()
-        row = db.execute("SELECT value FROM creative_profiles WHERE user_id=?", (user_id,)).fetchone()
-    return Profile.model_validate_json(row[0]).model_dump() if row else Profile().model_dump()
+        row = db.execute("SELECT value FROM creative_profiles WHERE user_id=%s", (user_id,)).fetchone()
+    return Profile.model_validate(row[0]).model_dump() if row else Profile().model_dump()
 
 
 def personal_context(user_id):
@@ -71,13 +43,12 @@ def personal_context(user_id):
     examples = []
     if preferences["learn_from_feedback"]:
         with connection() as db:
-            initialize(db)
             rows = db.execute("""SELECT i.metadata, f.rating, f.note FROM image_feedback f
                 JOIN images i ON i.filename=f.filename
-                WHERE f.user_id=? AND f.rating!=0 AND (i.user_id=? OR i.user_id IS NULL)
+                WHERE f.user_id=%s AND f.rating!=0 AND (i.user_id=%s OR i.user_id IS NULL)
                 ORDER BY f.updated DESC LIMIT 8""", (user_id, user_id)).fetchall()
             for row in rows:
-                metadata = json.loads(row["metadata"])
+                metadata = row["metadata"]
                 creative = metadata.get("creative")
                 brief = creative.get("brief", {}) if isinstance(creative, dict) else {}
                 if not isinstance(brief, dict):
@@ -90,74 +61,65 @@ def personal_context(user_id):
 
 def record_director(user_id, phase, request, response):
     with connection() as db:
-        initialize(db)
-        db.execute("INSERT INTO director_runs(user_id, phase, request, response, created) VALUES (?, ?, ?, ?, ?)",
-                   (user_id, phase, json.dumps(request, ensure_ascii=False), json.dumps(response, ensure_ascii=False), time.time()))
+        db.execute("INSERT INTO director_runs(user_id, phase, request, response, created) VALUES (%s, %s, %s, %s, %s)",
+                   (user_id, phase, Jsonb(request), Jsonb(response), time.time()))
         db.commit()
 
 
 def create_job(job_id, user_id, operation, parameters, creative):
     now = time.time()
     with connection() as db:
-        initialize(db)
-        db.execute("INSERT INTO generation_jobs VALUES (?, ?, ?, ?, ?, 'running', 0, ?, NULL, ?, ?)",
-                   (job_id, user_id, operation, json.dumps(parameters), json.dumps(creative) if creative else None,
+        db.execute("INSERT INTO generation_jobs VALUES (%s, %s, %s, %s, %s, 'running', 0, %s, NULL, %s, %s)",
+                   (job_id, user_id, operation, Jsonb(parameters), Jsonb(creative) if creative else None,
                     "Đang chuẩn bị mô hình…", now, now))
         db.commit()
 
 
 def update_job(job_id, state, message, progress=0, filename=None):
     with connection() as db:
-        initialize(db)
-        db.execute("UPDATE generation_jobs SET state=?, message=?, progress=?, filename=COALESCE(?, filename), updated=? WHERE id=?",
+        db.execute("UPDATE generation_jobs SET state=%s, message=%s, progress=%s, filename=COALESCE(%s, filename), updated=%s WHERE id=%s",
                    (state, message, progress, filename, time.time(), job_id))
         db.commit()
 
 
 def job(job_id, user_id):
     with connection() as db:
-        initialize(db)
-        row = db.execute("SELECT id, operation, state, progress, message, filename, created, parameters, creative FROM generation_jobs WHERE id=? AND user_id=?",
+        row = db.execute("SELECT id, operation, state, progress, message, filename, created, parameters, creative FROM generation_jobs WHERE id=%s AND user_id=%s",
                          (job_id, user_id)).fetchone()
     if not row:
         return None
     result = dict(row)
-    parameters = json.loads(result.pop("parameters"))
+    parameters = result.pop("parameters")
     result["prompt"] = parameters.get("prompt", "")
     result["negative"] = parameters.get("negative", "")
-    result["creative"] = json.loads(result["creative"]) if result["creative"] else None
     return result
 
 
 def history(user_id):
     with connection() as db:
-        initialize(db)
-        rows = db.execute("SELECT id, operation, state, progress, message, filename, created FROM generation_jobs WHERE user_id=? ORDER BY created DESC LIMIT 100", (user_id,)).fetchall()
+        rows = db.execute("SELECT id, operation, state, progress, message, filename, created FROM generation_jobs WHERE user_id=%s ORDER BY created DESC LIMIT 100", (user_id,)).fetchall()
     return [dict(row) for row in rows]
 
 
 def recover_jobs():
     with connection() as db:
-        initialize(db)
-        db.execute("UPDATE generation_jobs SET state='error', message=?, updated=? WHERE state='running'",
+        db.execute("UPDATE generation_jobs SET state='error', message=%s, updated=%s WHERE state='running'",
                    ("Máy chủ đã khởi động lại; hãy tạo ảnh lại.", time.time()))
         db.commit()
 
 
 def store_image(filename, png, metadata, user_id=None, created=None):
     with connection() as db:
-        initialize(db)
-        db.execute("INSERT OR IGNORE INTO images VALUES (?, ?, ?, ?, ?)",
-                   (filename, user_id, png, json.dumps(metadata, ensure_ascii=False), created or time.time()))
+        db.execute("INSERT INTO images VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                   (filename, user_id, png, Jsonb(metadata), created or time.time()))
         db.commit()
 
 
 def import_legacy(outputs):
     """Idempotent import. Legacy images stay shared; never assign them to a new user."""
     with connection() as db:
-        initialize(db)
         source = str(Path(outputs).resolve())
-        if db.execute("SELECT path FROM legacy_imports WHERE path=?", (source,)).fetchone():
+        if db.execute("SELECT path FROM legacy_imports WHERE path=%s", (source,)).fetchone():
             return
         known = {row[0] for row in db.execute("SELECT filename FROM images")}
         owners = {row["filename"]: row["user_id"] for row in db.execute("SELECT filename, user_id FROM generation_jobs WHERE filename IS NOT NULL")}
@@ -173,7 +135,7 @@ def import_legacy(outputs):
             metadata = {}
         store_image(path.name, path.read_bytes(), metadata, user_id=owners.get(path.name), created=path.stat().st_mtime)
     with connection() as db:
-        db.execute("INSERT OR IGNORE INTO legacy_imports VALUES (?, ?)", (source, time.time()))
+        db.execute("INSERT INTO legacy_imports VALUES (%s, %s) ON CONFLICT DO NOTHING", (source, time.time()))
         db.commit()
 
 
@@ -181,20 +143,18 @@ def image(filename, user_id):
     if Path(filename).name != filename or not filename.lower().endswith(".png"):
         return None
     with connection() as db:
-        initialize(db)
-        row = db.execute("SELECT png, metadata, user_id FROM images WHERE filename=? AND (user_id=? OR user_id IS NULL)", (filename, user_id)).fetchone()
+        row = db.execute("SELECT png, metadata, user_id FROM images WHERE filename=%s AND (user_id=%s OR user_id IS NULL)", (filename, user_id)).fetchone()
     return dict(row) if row else None
 
 
 def library(user_id):
     with connection() as db:
-        initialize(db)
         rows = db.execute("""SELECT i.filename, i.metadata, i.created, i.user_id, COALESCE(f.rating, 0) AS rating
-            FROM images i LEFT JOIN image_feedback f ON f.filename=i.filename AND f.user_id=?
-            WHERE i.user_id=? OR i.user_id IS NULL ORDER BY i.created DESC""", (user_id, user_id)).fetchall()
+            FROM images i LEFT JOIN image_feedback f ON f.filename=i.filename AND f.user_id=%s
+            WHERE i.user_id=%s OR i.user_id IS NULL ORDER BY i.created DESC""", (user_id, user_id)).fetchall()
     result = []
     for row in rows:
-        meta = json.loads(row["metadata"])
+        meta = row["metadata"]
         result.append({"filename": row["filename"], "created": row["created"], "prompt": str(meta.get("prompt", "")),
                        "width": meta.get("width"), "height": meta.get("height"), "creative": meta.get("creative"),
                        "rating": row["rating"], "legacy_shared": row["user_id"] is None,
@@ -206,8 +166,7 @@ def feedback(user_id, filename, rating, note):
     if not image(filename, user_id):
         return False
     with connection() as db:
-        initialize(db)
-        db.execute("INSERT INTO image_feedback VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, filename) DO UPDATE SET rating=excluded.rating, note=excluded.note, updated=excluded.updated",
+        db.execute("INSERT INTO image_feedback VALUES (%s, %s, %s, %s, %s) ON CONFLICT(user_id, filename) DO UPDATE SET rating=excluded.rating, note=excluded.note, updated=excluded.updated",
                    (user_id, filename, rating, note, time.time()))
         db.commit()
     return True
@@ -215,6 +174,5 @@ def feedback(user_id, filename, rating, note):
 
 def clear_feedback(user_id):
     with connection() as db:
-        initialize(db)
-        db.execute("DELETE FROM image_feedback WHERE user_id=?", (user_id,))
+        db.execute("DELETE FROM image_feedback WHERE user_id=%s", (user_id,))
         db.commit()

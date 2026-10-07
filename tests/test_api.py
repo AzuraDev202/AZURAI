@@ -14,14 +14,14 @@ from PIL import Image
 import azurai.api as studio
 import azurai.backend as inference
 import azurai.features as feature_catalog
-from fixtures import brief, concepts
+from fixtures import brief, concepts, postgres_store
 
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.store_patch = patch.object(studio.auth, "STORE", studio.auth.AccountStore(Path(self.directory.name) / "accounts.sqlite3"))
+        self.store_patch = patch.object(studio.auth, "STORE", postgres_store(self))
         self.store_patch.start()
         self.addCleanup(self.store_patch.stop)
         self.client = TestClient(studio.app, base_url="http://127.0.0.1")
