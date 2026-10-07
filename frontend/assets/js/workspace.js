@@ -51,7 +51,7 @@ async function restorePreferences() {
 }
 function updateSettingsSummary() {
   $("defaultsSummary").textContent = `${$("width").value} × ${$("height").value} px · ${$("steps").value} bước · CFG ${$("guidance").value}`;
-  $("settingsAccount").textContent = `Đăng nhập: ${currentUser?.username || ""} · Thư viện dùng chung trên máy, dự án riêng theo tài khoản.`;
+  $("settingsAccount").textContent = `Đăng nhập: ${currentUser?.username || ""} · Ảnh mới và dự án riêng theo tài khoản; ảnh cũ được giữ trong thư viện chung.`;
 }
 $("saveDefaults").onclick = async () => {
   try { await api("/api/preferences", jsonRequest("PUT", preferenceValues())); $("settingsStatus").textContent = "Đã lưu cấu hình mặc định cho tài khoản."; }
@@ -137,8 +137,9 @@ async function openImageDetails(item){
 }
 $("reuseImage").onclick=()=>{
   if(!detailItem)return; $("imageDialog").close(); showLibraryImage(detailItem);
-  Director.setMode(false);
+  Director.setMode(true);
   if (detailItem.creative) Director.restoreCreative(detailItem.creative);
+  else { $("directorIdea").value=detailItem.prompt||""; $("directorIdea").dispatchEvent(new Event("input")); }
   $("prompt").value=detailItem.prompt||""; updatePromptCount();
   for(const [id,value] of Object.entries(detailItem.parameters||{})) if(preferenceIds.includes(id)) $(id).value=value;
   aspect=null;updateSize(); $("prompt").focus();

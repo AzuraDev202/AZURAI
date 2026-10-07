@@ -7,6 +7,7 @@ import httpx
 from pydantic import ValidationError
 
 from azurai import director
+from fixtures import brief, concepts
 
 
 class DirectorTests(unittest.TestCase):
@@ -15,41 +16,39 @@ class DirectorTests(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
-    def test_templates_are_explicit_and_rotate_without_losing_idea(self):
-        idea = director.Idea(idea="Một người đàn ông không bỏ cuộc", aspect="tall")
-        result = director.develop(idea)
-        self.assertEqual(result["provider"], "templates")
-        self.assertEqual(len(result["concepts"]), 3)
-        self.assertTrue(all(c["idea"] == idea.idea and c["aspect"] == "tall" for c in result["concepts"]))
-        second = director.develop(idea.model_copy(update={"previous_titles": [c["title"] for c in result["concepts"]]}))
-        self.assertFalse({c["title"] for c in result["concepts"]} & {c["title"] for c in second["concepts"]})
+    def test_missing_model_blocks_concepts_and_generation_without_fallback(self):
+        self.assertFalse(director.configuration()["configured"])
+        with self.assertRaises(director.DirectorError):
+            director.develop(director.Idea(idea="cat"))
+        with self.assertRaises(director.DirectorError):
+            director.direct_for_generation(brief())
 
     def test_compile_camera_edit_preserves_other_semantics(self):
-        brief = director.template_concepts(director.Idea(idea="a red perfume bottle"))[0]
-        original = director.compile_prompt(brief)
-        edited = brief.model_copy(update={"angle": "low angle"})
+        original_brief = brief()
+        original = director.compile_prompt(original_brief)
+        edited = original_brief.model_copy(update={"angle": "low angle"})
         output = director.compile_prompt(edited)
         self.assertTrue(output["prompt"].startswith("a red perfume bottle"))
         self.assertEqual(output["prompt"], original["prompt"].replace("eye level", "low angle"))
         self.assertEqual(output["negative"], original["negative"])
-        self.assertEqual(brief.angle, "eye level")
+        self.assertEqual(original_brief.angle, "eye level")
 
     def test_blank_unknown_and_oversized_fields_are_rejected(self):
         for idea in ["", "   ", "x" * 1501]:
             with self.assertRaises(ValidationError):
                 director.Idea(idea=idea)
-        brief = director.template_concepts(director.Idea(idea="cat"))[0].model_dump()
+        payload = brief("cat").model_dump()
         for change in [{"camera": "unexpected"}, {"subject": " "}, {"scene": "x" * 301}]:
             with self.assertRaises(ValidationError):
-                director.Brief.model_validate({**brief, **change})
+                director.Brief.model_validate({**payload, **change})
 
     def test_ollama_structured_output_and_server_owned_idea(self):
         idea = director.Idea(idea="một con mèo", aspect="tall")
-        concepts = [c.model_dump() for c in director.template_concepts(idea)]
-        for c in concepts:
+        candidates = concepts(idea.idea)
+        for c in candidates:
             c["idea"] = "hallucinated idea"
             c["aspect"] = "wide"
-        response = httpx.Response(200, json={"message": {"content": json.dumps({"concepts": concepts})}})
+        response = httpx.Response(200, json={"message": {"content": json.dumps({"concepts": candidates})}})
         response.request = httpx.Request("POST", "http://localhost/api/chat")
         with patch.dict(os.environ, {"AZURAI_DIRECTOR_MODEL": "test-model"}), patch("azurai.director.httpx.Client") as client:
             client.return_value.__enter__.return_value.post.return_value = response

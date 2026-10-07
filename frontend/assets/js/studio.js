@@ -129,6 +129,11 @@ async function monitor(id) {
           try { await api(`/api/projects/${$("generationProject").value}/images`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({filename:job.filename})}); }
           catch (error) { $("status").textContent += " · " + error.message; }
         }
+        if (job.creative?.brief) {
+          Director.brief=job.creative.brief; Director.render();
+          $("prompt").value=job.prompt; $("negative").value=job.negative; updatePromptCount();
+        }
+        Director.showFeedback(job.filename);
         if (job.filename) localStorage.setItem("azuraiPreview", JSON.stringify({filename:job.filename,prompt:$("prompt").value}));
       }
       return;
@@ -147,7 +152,7 @@ async function run(operation, resumeId = null) {
   try {
     let id = resumeId;
     if (!id) {
-      if (operation === "generate" && Director.mode) await Director.save();
+      if (operation === "generate") await Director.save();
       const data = settings();
       if (operation === "generate") Object.assign(data, {
         prompt: $("prompt").value, negative: $("negative").value,
@@ -155,7 +160,7 @@ async function run(operation, resumeId = null) {
         steps: Number($("steps").value), guidance: Number($("guidance").value), seed: Number($("seed").value),
       });
       let endpoint = `/api/${operation}`;
-      if (operation === "generate" && Director.mode) {
+      if (operation === "generate") {
         endpoint = "/api/director/generate";
         delete data.prompt; delete data.negative; data.version = Director.version;
       }
@@ -177,8 +182,9 @@ async function run(operation, resumeId = null) {
 
 document.querySelectorAll("[data-example]").forEach((button) => {
   button.onclick = () => {
-    Director.setMode(false);
-    $("prompt").value = examples[button.dataset.example]; updatePromptCount(); $("prompt").focus();
+    Director.setMode(true);
+    $("directorIdea").value = examples[button.dataset.example];
+    $("directorIdea").dispatchEvent(new Event("input")); $("directorIdea").focus();
     document.querySelectorAll("[data-example]").forEach(item => item.classList.toggle("selected", item === button));
   };
 });
@@ -224,6 +230,7 @@ function showLibraryImage(item) {
   $("download").href = url;
   $("download").hidden = false;
   $("resultInfo").textContent = item.prompt || item.filename;
+  Director.showFeedback(item.filename);
   if (item.creative) Director.restoreCreative(item.creative);
   localStorage.setItem("azuraiPreview", JSON.stringify(item));
   if ($("libraryDialog").open) $("libraryDialog").close();

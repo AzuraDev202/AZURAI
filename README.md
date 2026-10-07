@@ -50,7 +50,7 @@ Mở **http://127.0.0.1:7860**. Dừng bằng Ctrl+C. Script tạo `.venv` riên
 
 ## Trang chủ và tài khoản
 
-Thanh bên có 5 trang riêng: **Trang chủ** (lối tắt, số liệu thật, quy trình sáng tạo), **Tính năng** (nhóm mô hình), **Thư viện** (tìm kiếm, sắp xếp, tải PNG, dùng lại mô tả và thông số), **Dự án** (tạo/sửa/xóa bộ sưu tập, thêm/gỡ ảnh), **Cài đặt** (GPU, bộ nhớ, offline, chuẩn bị mô hình và cấu hình mặc định). Dự án và cấu hình mặc định lưu theo tài khoản trong SQLite; ảnh vẫn dùng chung trên máy. Xóa dự án hoặc gỡ ảnh khỏi dự án không xóa file PNG.
+Thanh bên có 5 trang riêng: **Trang chủ** (lối tắt, số liệu thật, quy trình sáng tạo), **Tính năng** (nhóm mô hình), **Thư viện** (tìm kiếm, sắp xếp, tải PNG, dùng lại mô tả và thông số), **Dự án** (tạo/sửa/xóa bộ sưu tập, thêm/gỡ ảnh), **Cài đặt** (GPU, bộ nhớ, offline, chuẩn bị mô hình và cấu hình mặc định). Dự án và cấu hình mặc định lưu theo tài khoản trong SQLite; ảnh mới riêng theo tài khoản, ảnh cũ giữ quyền dùng chung. Xóa dự án hoặc gỡ ảnh khỏi dự án không xóa file PNG.
 
 Giao diện dashboard dùng nền tối, thanh bên rộng và thẻ màu lấy cảm hứng từ ảnh tham chiếu. Các công cụ giọng nói, nhạc và xuất bản video trong ảnh mẫu chưa có backend ở dự án này. Text to Video hiển thị trạng thái chưa hỗ trợ.
 
@@ -58,7 +58,7 @@ Trang chủ có nút mở Studio, giới thiệu chức năng và tối đa 4 �
 
 Studio và các API xử lý ảnh yêu cầu đăng nhập. Tài khoản được lưu trong `data/accounts.sqlite3`; mật khẩu băm bằng scrypt, mã phiên được băm trong cơ sở dữ liệu, cookie HttpOnly/SameSite Strict hết hạn sau 7 ngày và bị thu hồi khi đăng xuất. Dữ liệu tài khoản không được đưa vào Git hay ZIP. Không cần dịch vụ đăng nhập bên ngoài hoặc kết nối mạng để dùng tài khoản.
 
-Đây là tài khoản cho ứng dụng cục bộ: các tài khoản dùng chung mô hình, máy xử lý và thư viện `outputs/`. Đăng xuất không hủy tác vụ tạo ảnh đang chạy trên máy. Giữ file cơ sở dữ liệu nếu muốn giữ tài khoản khi cập nhật dự án.
+Đây là tài khoản cho ứng dụng cục bộ: các tài khoản dùng chung mô hình và máy xử lý; database cách ly ảnh mới theo tài khoản. Thư mục `outputs/` chứa bản xuất trên máy, không phải cơ chế phân quyền. Đăng xuất không hủy tác vụ tạo ảnh đang chạy trên máy. Giữ file cơ sở dữ liệu nếu muốn giữ tài khoản khi cập nhật dự án.
 
 ## Tự chọn mô hình và cấu hình
 
@@ -156,13 +156,13 @@ python scripts/package.py --include-cache --output AZURAI-offline.zip
 
 Tham khảo: [Diffusers single-file loading](https://huggingface.co/docs/diffusers/v0.36.0/en/api/loaders/single_file), [FastAPI](https://fastapi.tiangolo.com/).
 
-## Creative Director V1
+## Creative Director V2 — luôn dùng LLM
 
-Bật **✨ Creative Director** trong Studio để đi từ ý tưởng → 3 concept → brief có thể sửa → prompt → Text2Img. Chọn concept, chỉnh chủ thể/bối cảnh/camera/ánh sáng/phong cách và bấm **Tạo hình ảnh**. Prompt được biên dịch trên máy chủ từ brief đã lưu; chế độ nhập prompt trực tiếp vẫn hoạt động khi tắt Creative Director.
+Mọi ảnh trong Studio đi qua **ý tưởng → 3 concept từ LLM → brief có thể sửa → LLM rà soát brief → prompt → Text2Img**. Creative Director luôn bật, không còn chế độ gợi ý mẫu hay nhập prompt trực tiếp để bỏ qua Director. API `/api/generate` trả lỗi hướng dẫn chuyển sang workflow Director. Mỗi lần tạo biến thể hoặc tạo lại ảnh cũng phải qua LLM; không chỉ lần đề xuất concept đầu tiên.
 
-### Bật LLM cục bộ (Ollama)
+### Cấu hình bắt buộc
 
-Cài và chạy [Ollama](https://ollama.com/), tải một model có khả năng hiểu tiếng Việt và xuất JSON có cấu trúc. Ví dụ với model đã cài `qwen2.5:3b`, chạy trong PowerShell tại thư mục AZURAI:
+Cài và chạy [Ollama](https://ollama.com/), tải model có khả năng hiểu tiếng Việt và xuất JSON có cấu trúc. Với model đã cài tên `qwen2.5:3b`, chạy PowerShell tại thư mục AZURAI:
 
 ```powershell
 $env:AZURAI_DIRECTOR_MODEL = "qwen2.5:3b"
@@ -170,28 +170,35 @@ $env:AZURAI_DIRECTOR_URL = "http://127.0.0.1:11434"
 .\run.ps1
 ```
 
-Tên model phải khớp với `ollama list`. `AZURAI_DIRECTOR_URL` là tùy chọn, mặc định là địa chỉ trên; chỉ hỗ trợ Ollama HTTP trên localhost. Không cần API key. Cấu hình được đọc từ biến môi trường phía máy chủ, không từ trình duyệt. Gỡ biến model để quay về gợi ý mẫu:
+Tên model phải khớp `ollama list`. URL mặc định là `http://127.0.0.1:11434`, chỉ hỗ trợ HTTP Ollama trên localhost. Không cần API key. Nếu thiếu model, mất kết nối hoặc JSON không hợp lệ, AZURAI **dừng tạo ảnh**, báo lỗi và giữ brief để thử lại; không chuyển sang preset. UI khóa nút tạo khi chưa cấu hình model. Model đã cấu hình nhưng chưa chạy vẫn sẽ báo lỗi khi gọi.
+
+LLM tạo tiêu đề tiếng Việt, các trường hình ảnh tiếng Anh, và nhận dữ liệu có schema được kiểm tra bằng Pydantic. Bước rà soát trước mỗi lần Generate nhận brief đã duyệt và được hướng dẫn giữ các lựa chọn rõ ràng của người dùng. Prompt ưu tiên chủ thể/hành động/bối cảnh. Ngữ cảnh CLIP của SD1.5 ngắn nên prompt dài vẫn có thể bị cắt. `keep_alive: 0` yêu cầu Ollama giải phóng LLM sau mỗi lần gọi. Director và tác vụ ảnh chạy lần lượt để hạn chế tranh VRAM; AZURAI gỡ model ảnh khỏi RAM/VRAM trước khi gọi LLM, rồi nạp lại khi tạo ảnh. Điều này giảm tranh bộ nhớ nhưng tăng thời gian tạo ảnh; vẫn cần chọn model LLM phù hợp bộ nhớ máy.
+
+### Cá nhân hóa
+
+Mở **Phong cách của tôi** trong Studio để lưu mục tiêu sáng tạo, phong cách, bảng màu, ánh sáng và chi tiết muốn tránh. Hồ sơ riêng theo tài khoản, có hai lựa chọn độc lập: dùng cá nhân hóa và tham khảo phản hồi ảnh.
+
+Sau khi tạo hoặc mở ảnh, nhập điều bạn thích/muốn thay đổi rồi chọn **Hợp ý tôi / Chưa hợp ý / Bỏ đánh giá**. Director nhận tối đa 8 phản hồi gần nhất cùng các thuộc tính thị giác của brief; yêu cầu cụ thể của ý tưởng hiện tại luôn được ưu tiên. Đây là đưa bộ nhớ vào ngữ cảnh LLM, **không phải huấn luyện lại model**. Tắt tham khảo phản hồi để dừng sử dụng chúng; **Quên phản hồi ảnh** xóa các đánh giá hiện hành. Hồ sơ, ảnh và snapshot lịch sử tạo vẫn được giữ. Có thể sửa hoặc xóa nội dung hồ sơ bất cứ lúc nào.
+
+### Database thống nhất: SQLite
+
+Dùng tiếp `data/accounts.sqlite3` để giữ tài khoản cũ. Database lưu tài khoản, phiên đăng nhập, dự án, cấu hình, brief nháp, hồ sơ, request/response Director, tác vụ tạo ảnh, thông số, brief đã duyệt/rà soát, ngữ cảnh cá nhân đã dùng, phản hồi **và bytes PNG (BLOB)**. Checkpoint và cache model vẫn là file vận hành, không đưa vào database. JSON/PNG trong `outputs/` là bản xuất tương thích, database là nguồn để mở và tải ảnh; xóa bản xuất không làm mất ảnh đã lưu trong database.
+
+Schema mới bổ sung bảng, ghi migration phiên bản 2, bật WAL, foreign keys và busy timeout. Giữ nguyên tài khoản/dự án/cấu hình/brief cũ. Khi lần đầu mở mỗi thư mục outputs, ảnh cũ và JSON được nhập một lần, không xóa nguồn và không nhập trùng. Ảnh cũ vốn dùng chung tiếp tục dùng chung; không tự gán quyền sở hữu cho tài khoản đầu tiên. Ảnh mới, job, lịch sử và phản hồi riêng theo tài khoản. Ảnh cũ trong bản V1 chưa đi qua LLM sẽ được rà soát lại trước khi tạo ảnh mới.
+
+Tác vụ được ghi xuống database trước khi chạy; sau khởi động lại, tác vụ dang dở được đánh dấu lỗi để tạo lại. Ảnh/tác vụ hoàn tất mở lại được dù mất trạng thái RAM hoặc file xuất. API `/api/history` trả 100 tác vụ gần nhất của tài khoản. Backup đúng cách bằng SQLite backup API, bao gồm dữ liệu WAL và ảnh:
 
 ```powershell
-Remove-Item Env:AZURAI_DIRECTOR_MODEL -ErrorAction SilentlyContinue
-.\run.ps1
+.\.venv\Scripts\python.exe scripts/backup.py data/backups/azurai-backup.sqlite3
 ```
 
-Khi không cấu hình LLM, UI ghi rõ **Gợi ý mẫu**: các hướng sáng tạo được dựng từ preset, giữ nguyên câu nhập làm chủ thể và chưa tự hiểu/dịch ý tưởng tiếng Việt. Khi đã cấu hình LLM nhưng Ollama mất kết nối hoặc trả JSON sai, AZURAI báo lỗi để thử lại. Không âm thầm chuyển sang mẫu.
+Đích backup phải là tên mới. Để phục hồi, dừng AZURAI, sao lưu database hiện tại rồi dùng file backup thay thế `data/accounts.sqlite3`; không thay database khi server đang chạy. SQLite phù hợp ứng dụng cá nhân cục bộ hiện tại. Với triển khai nhiều máy/người dùng và kho ảnh lớn, nên chuyển sang PostgreSQL cho metadata và object storage cho media; bản này chưa triển khai hệ thống đó.
 
-LLM tạo ba brief khác nhau, dùng tiêu đề tiếng Việt và trường hình ảnh tiếng Anh. Dữ liệu được kiểm tra bằng Pydantic trước khi hiển thị. API Ollama dùng [structured output](https://docs.ollama.com/api/chat) và `keep_alive: 0` để yêu cầu giải phóng model sau khi trả lời. Yêu cầu phát triển concept và job ảnh được chạy lần lượt để hạn chế tranh VRAM. Chất lượng hiểu ý tưởng phụ thuộc LLM đã chọn; cần kiểm tra concept trước khi tạo ảnh.
+API mới có xác thực: `GET/PUT /api/profile`, `DELETE /api/profile/feedback`, `PUT /api/library/{filename}/feedback`, `GET /api/history`. Các API Director vẫn có xác thực và kiểm tra phiên bản brief để phát hiện xung đột giữa các tab.
 
-### Lưu và phát triển tiếp
+Text2Img vẫn tạo ảnh mới, không bảo đảm giữ nguyên danh tính nhân vật. Chưa có image-to-image, vision tự chấm điểm ảnh hoặc tự học trọng số model.
 
-- Mỗi tài khoản có một brief nháp lưu trong SQLite, phục hồi qua **Mở lại brief đã lưu**. Bản nháp có phiên bản; sửa đồng thời ở tab khác sẽ báo xung đột thay vì ghi đè.
-- Mỗi ảnh từ Director lưu snapshot `creative: {version, brief}` trong JSON cạnh ảnh. Mở ảnh từ thư viện và dùng lại để chỉnh tiếp. Thư viện ảnh vẫn dùng chung trên máy như phiên bản trước, bao gồm brief đính kèm; brief nháp riêng theo tài khoản.
-- **Biến thể mới** giữ brief và đặt seed `-1`; đổi camera/style/ánh sáng/bối cảnh mở đúng trường brief để bạn sửa trước khi tạo lại.
-- Text2Img tạo ảnh mới, chưa có image-to-image hay cơ chế khóa danh tính nhân vật. Chưa có bước tự chấm điểm ảnh bằng vision model.
-- Prompt ưu tiên chủ thể/hành động/bối cảnh. SD1.5 có ngữ cảnh CLIP ngắn; UI nhắc rút gọn khi prompt dài. Tỷ lệ ảnh tuân theo preset kích thước hiện có (xấp xỉ 16:9 và 9:16 do bội số 64).
-
-API có xác thực: `POST /api/director/concepts`, `POST /api/director/compile`, `GET/PUT /api/director/draft`, `POST /api/director/generate`, `GET /api/director/config`. Generate nhận phiên bản brief và thông số inference; không nhận prompt từ trình duyệt.
-
-Kiểm thử (không tải checkpoint):
+Kiểm thử không tải checkpoint:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v

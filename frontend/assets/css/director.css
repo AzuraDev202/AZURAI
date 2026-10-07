@@ -13,3 +13,5 @@
 .director-warning {color:#f0c28e}.director-message {color:#cfbfff}
 .director-actions {padding:12px 18px;border-top:1px solid #383347}
 @media(max-width:600px) {.director-fields {grid-template-columns:1fr}.director-panel {padding:12px}}
+#personalSettings input[type="checkbox"] {width:18px;height:18px;flex:none;accent-color:#9776ff}
+#imageFeedback label,#imageFeedback input,#imageFeedback p {flex-basis:100%;width:100%;margin:0}
