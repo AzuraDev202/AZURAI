@@ -115,6 +115,7 @@ class MigrationTests(unittest.TestCase):
         with self.store.connect() as db:
             schema = db.execute('SELECT current_schema()').fetchone()[0]
             db.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+            db.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
         result = subprocess.run(['pg_restore', '--no-owner', '--no-acl', '--exit-on-error',
                         '--schema', schema, '--dbname', settings['dbname'], str(destination)],
                        env=env, capture_output=True)

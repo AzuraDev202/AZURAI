@@ -30,7 +30,7 @@ def postgres_store(testcase):
         db.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
     def cleanup():
         with psycopg.connect(url, autocommit=True) as db:
-            db.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+            db.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema)))
     testcase.addCleanup(cleanup)
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query))
