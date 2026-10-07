@@ -8,13 +8,14 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from azurai import api, auth
+from fixtures import postgres_store
 
 
 class AuthTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.store = auth.AccountStore(Path(directory.name) / "accounts.sqlite3")
+        self.store = postgres_store(self)
         patcher = patch.object(auth, "STORE", self.store)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -57,7 +58,7 @@ class AuthTests(unittest.TestCase):
             session = connection.execute("SELECT * FROM sessions").fetchone()
         self.assertNotEqual(user["password_hash"], self.credentials["password"])
         self.assertEqual(session["token_hash"], hashlib.sha256(token.encode()).hexdigest())
-        reopened = auth.AccountStore(self.store.path)
+        reopened = auth.AccountStore(self.store.dsn)
         self.assertEqual(reopened.authenticate("ALICE", self.credentials["password"])["username"], "alice")
         self.assertEqual(reopened.session_user(token)["username"], "alice")
 
@@ -73,7 +74,7 @@ class AuthTests(unittest.TestCase):
     def test_expired_sessions_and_cross_origin_auth_are_rejected(self):
         self.register()
         with self.store.connect() as connection:
-            connection.execute("UPDATE sessions SET expires = ?", (time.time() - 1,))
+            connection.execute("UPDATE sessions SET expires = %s", (time.time() - 1,))
             connection.commit()
         self.assertEqual(self.client.get("/api/library").status_code, 401)
         for route in ["login", "register", "logout"]:
