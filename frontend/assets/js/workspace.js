@@ -137,6 +137,8 @@ async function openImageDetails(item){
 }
 $("reuseImage").onclick=()=>{
   if(!detailItem)return; $("imageDialog").close(); showLibraryImage(detailItem);
+  Director.setMode(false);
+  if (detailItem.creative) Director.restoreCreative(detailItem.creative);
   $("prompt").value=detailItem.prompt||""; updatePromptCount();
   for(const [id,value] of Object.entries(detailItem.parameters||{})) if(preferenceIds.includes(id)) $(id).value=value;
   aspect=null;updateSize(); $("prompt").focus();

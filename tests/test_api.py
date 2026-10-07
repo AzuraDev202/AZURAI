@@ -36,11 +36,12 @@ class ApiTests(unittest.TestCase):
         self.fail("Job did not finish")
 
     def test_reference_ui_and_assets_are_served_without_cache(self):
-        for route in ["/", "/studio.css", "/studio.js", "/workspace.js", "/dashboard.css"]:
+        for route in ["/", "/studio.css", "/studio.js", "/workspace.js", "/dashboard.css", "/director.js", "/director.css"]:
             response = self.client.get(route)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.headers["cache-control"], "no-store")
-        self.assertIn("Creative Studio", self.client.get("/").text)
+        self.assertIn('id="studioView"', self.client.get("/").text)
+        self.assertIn('id="directorPanel"', self.client.get("/").text)
 
     def test_prompt_reaches_generation_and_png_download(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -155,6 +156,46 @@ class ApiTests(unittest.TestCase):
         self.assertEqual((saved["width"], saved["seed"]), (640, 42))
         self.client.post("/api/auth/register", json={"username": "another", "password": "test-password"})
         self.assertEqual(self.client.get("/api/preferences").json()["preferences"]["width"], 512)
+
+    def test_director_draft_isolation_conflicts_and_generation_snapshot(self):
+        response = self.client.post("/api/director/concepts", json={"idea": "a red bottle"})
+        self.assertEqual(response.status_code, 200)
+        brief = response.json()["concepts"][0]
+        saved = self.client.put("/api/director/draft", json={"brief": brief, "version": 0})
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["version"], 1)
+        self.assertEqual(self.client.put("/api/director/draft", json={"brief": brief, "version": 0}).status_code, 409)
+        self.assertEqual(self.client.post("/api/director/generate", json={"version": 2}).status_code, 409)
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "creative.png"
+            Image.new("RGB", (256, 256)).save(image)
+            with patch.object(studio.SERVICE, "generate", return_value=(str(image), str(image), "done")) as generate:
+                job = self.client.post("/api/director/generate", json={"version": 1, "width": 256, "height": 256, "seed": 42})
+                self.assertEqual(job.status_code, 202)
+                self.assertEqual(self.wait_job(job.json()["id"])["state"], "done")
+                self.assertEqual(generate.call_args.kwargs["prompt"], saved.json()["prompt"])
+                self.assertEqual(generate.call_args.kwargs["seed"], 42)
+                import json
+                metadata = json.loads(image.with_suffix(".json").read_text())
+                self.assertEqual(metadata["creative"], {"brief": brief, "version": 1})
+        self.client.post("/api/auth/logout")
+        self.client.post("/api/auth/login", json={"username": "tester", "password": "test-password"})
+        self.assertEqual(self.client.get("/api/director/draft").json()["brief"], brief)
+        other = TestClient(studio.app, base_url="http://127.0.0.1")
+        other.post("/api/auth/register", json={"username": "director2", "password": "test-password"})
+        self.assertIsNone(other.get("/api/director/draft").json()["brief"])
+        self.assertEqual(other.post("/api/director/generate", json={"version": 1}).status_code, 400)
+        outsider = TestClient(studio.app, base_url="http://127.0.0.1")
+        self.assertEqual(outsider.post("/api/director/concepts", json={"idea": "cat"}).status_code, 401)
+
+    def test_director_errors_validation_and_exclusion_from_image_jobs(self):
+        self.assertEqual(self.client.post("/api/director/concepts", json={"idea": " "}).status_code, 422)
+        with patch.object(studio.director, "develop", side_effect=studio.director.DirectorError("LLM unavailable")):
+            self.assertEqual(self.client.post("/api/director/concepts", json={"idea": "cat"}).status_code, 502)
+        self.assertFalse(studio.DIRECTOR_GUARD.locked())
+        with studio.DIRECTOR_GUARD:
+            self.assertEqual(self.client.post("/api/generate", json={"prompt": "cat"}).status_code, 409)
+            self.assertEqual(self.client.post("/api/director/concepts", json={"idea": "cat"}).status_code, 409)
 
     def test_library_lists_saved_images_and_rejects_paths_outside_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
