@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AZURAI · Creative Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M2 36L18 3h6L38 36h-9L21 15 11 36Z' fill='%2300cfff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/studio.css"><script src="/studio.js" defer></script>
+</head>
+<body>
+  <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-8 9 8v11h-6v-8H9v8H3Z"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m3 18 6-6 4 4 4-7 4 6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="m9 3 1-2h4l1 2 3 2 2 1v4l-2 2-1 3 1 2-3 3-2-1h-3l-2 1-3-3 1-2-1-3-2-2V6l2-1Z"/><circle cx="12" cy="10" r="3"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M5 2h10l4 4v16H5ZM15 2v5h4M8 11h8M8 15h8M8 18h5"/></symbol>
+    <symbol id="i-light" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M8 14a6 6 0 1 1 8 0l-1 3H9ZM12 1V0M3 5l-2-1M21 5l2-1M2 12H0M22 12h2"/></symbol>
+    <symbol id="i-landscape" viewBox="0 0 24 24"><path d="m2 20 7-11 4 6 3-5 6 10ZM7 5l2-3 2 3M9 2v5"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M3 22v-3a9 9 0 0 1 18 0v3Z"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7Zm0 10 9-5M12 12 3 7M12 12v10"/></symbol>
+    <symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 2v16h16M2 6h16v16M10 3h11v11"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M2 5h5M11 5h11M2 12h12M18 12h4M2 19h3M9 19h13"/><circle cx="9" cy="5" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="7" cy="19" r="2"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m10 2 2.5 7.5L20 12l-7.5 2.5L10 22l-2.5-7.5L0 12l7.5-2.5ZM20 2v5M17.5 4.5h5M20 18v4M18 20h4"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3 12h18m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 2v13m-5-5 5 5 5-5M3 16v5h18v-5"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M5 17h14l-2-4V8a5 5 0 0 0-10 0v5ZM10 21h4M12 1v2"/></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4M9 9h6v6H9Z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="4" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="20" cy="12" r="1"/></symbol>
+    <symbol id="i-model" viewBox="0 0 24 24"><path d="M12 2a6 6 0 0 1 6 4 6 6 0 0 1 3 9 6 6 0 0 1-6 7 6 6 0 0 1-9-3 6 6 0 0 1-4-9 6 6 0 0 1 10-8ZM7 8l5-3 6 3v7l-6 4-6-3V9l6-3 6 3M6 12l6 4 6-4M12 5v11"/></symbol>
+  </defs></svg>
+  <header>
+    <div class="brand"><svg class="logo" viewBox="0 0 40 42" aria-hidden="true"><defs><linearGradient id="logoGradient" x2="0" y2="1"><stop stop-color="#88f6ff"/><stop offset="1" stop-color="#0075ef"/></linearGradient></defs><path d="M2 39 18 4h6l14 35h-9L21 17 11 39Z" fill="url(#logoGradient)"/><circle cx="20" cy="31" r="3" fill="#17baff"/></svg>AZURAI<span class="edition">Creative Studio</span></div>
+    <div class="header-actions">
+      <div class="device-badge" title="GPU của máy xử lý ảnh"><svg class="icon"><use href="#i-chip"/></svg><span id="device">Đang kiểm tra…</span></div>
+      <button class="icon-button" id="notifications" aria-label="Trạng thái xử lý"><svg class="icon"><use href="#i-bell"/></svg></button>
+      <button class="icon-button avatar" id="session" aria-label="Thông tin phiên cục bộ"><svg class="icon"><use href="#i-user"/></svg></button>
+    </div>
+  </header>
+  <nav class="sidebar" aria-label="Điều hướng chính">
+    <button class="nav-button" data-nav="home"><svg class="icon"><use href="#i-home"/></svg>Trang chủ</button>
+    <button class="nav-button active" data-nav="create" aria-current="page"><svg class="icon"><use href="#i-image"/></svg>Tạo hình ảnh</button>
+    <button class="nav-button" data-nav="library"><svg class="icon"><use href="#i-image"/></svg>Thư viện</button>
+    <button class="nav-button" data-nav="settings"><svg class="icon"><use href="#i-settings"/></svg>Cài đặt</button>
+  </nav>
+  <main class="shell">
+    <div class="intro"><h1>Biến ý tưởng thành <span>hình ảnh</span></h1></div>
+    <div class="layout">
+      <section class="card controls">
+        <h2 class="section-title"><svg class="icon"><use href="#i-file"/></svg>Ý tưởng của bạn</h2>
+        <p class="subtitle">Mô tả chi tiết ý tưởng để tạo ra hình ảnh như mong muốn.</p>
+        <form id="form">
+          <div class="prompt-wrap"><label for="prompt" class="sr-only">Mô tả ảnh</label><textarea id="prompt" required maxlength="4000" placeholder="A breathtaking landscape of Mount Fuji at sunrise, golden sunlight, a tranquil lake, cherry blossom trees, cinematic photography…"></textarea><span class="counter" id="promptCount">0/4000</span></div>
+          <div class="field-title quick-title"><svg class="icon"><use href="#i-light"/></svg>Gợi ý nhanh</div>
+          <div class="examples">
+            <button class="chip" type="button" data-example="landscape"><svg class="icon"><use href="#i-landscape"/></svg>Phong cảnh</button>
+            <button class="chip" type="button" data-example="portrait"><svg class="icon"><use href="#i-user"/></svg>Chân dung</button>
+            <button class="chip" type="button" data-example="product"><svg class="icon"><use href="#i-cube"/></svg>Sản phẩm</button>
+          </div>
+          <div class="model-section">
+            <label for="selection"><svg class="icon"><use href="#i-cube"/></svg>Mô hình</label>
+            <div class="select-wrap"><svg class="icon"><use href="#i-model"/></svg><select id="selection"></select></div>
+            <div class="model"><span id="selectedModel">Đang kiểm tra…</span></div>
+          </div>
+          <div class="field-title"><svg class="icon"><use href="#i-crop"/></svg>Tỷ lệ khung hình</div>
+          <div class="ratios" role="group" aria-label="Tỷ lệ khung hình">
+            <button class="ratio" type="button" data-aspect="square" aria-pressed="true"><span class="shape"></span>1:1</button>
+            <button class="ratio" type="button" data-aspect="wide" aria-pressed="false"><span class="shape wide"></span>≈16:9</button>
+            <button class="ratio" type="button" data-aspect="tall" aria-pressed="false"><span class="shape tall"></span>≈9:16</button>
+          </div>
+          <details class="advanced" id="advancedSettings">
+            <summary><svg class="icon"><use href="#i-sliders"/></svg>Cài đặt nâng cao</summary>
+            <details class="advanced" id="sizeSettings">
+              <summary>Kích thước &amp; độ phân giải · <span id="resolutionSummary">512 × 512</span></summary>
+              <div class="ratios secondary-ratios"><button class="ratio" type="button" data-aspect="landscape" aria-pressed="false">4:3</button><button class="ratio" type="button" data-aspect="portrait" aria-pressed="false">3:4</button></div>
+              <label for="resolution">Mức độ phân giải</label><select id="resolution"></select>
+              <div class="row"><div><label for="width">Chiều rộng · px</label><input id="width" type="number" value="512" min="256" max="1024" step="64" required></div><div><label for="height">Chiều cao · px</label><input id="height" type="number" value="512" min="256" max="1024" step="64" required></div></div>
+              <p class="help" id="sizeHelp">512 × 512 px · 0.26 megapixel.</p><button class="chip" id="recommend" type="button">Dùng kích thước gợi ý</button>
+            </details>
+            <label for="negative">Chi tiết muốn tránh</label><textarea id="negative" rows="2" maxlength="4000">blurry, low quality, distorted, watermark, text</textarea>
+            <div class="row"><div><label for="steps">Số bước</label><input id="steps" type="number" value="20" min="1" max="50" required></div><div><label for="guidance">Độ bám mô tả</label><input id="guidance" type="number" value="7" min="1" max="15" step="0.5" required></div></div>
+            <label for="seed">Seed · -1 để chọn ngẫu nhiên</label><input id="seed" type="number" value="-1" min="-1" max="2147483647" required>
+            <label for="mode">Chế độ bộ nhớ</label><select id="mode"></select><label for="precision">Precision</label><select id="precision"></select>
+            <label class="check"><input id="offline" type="checkbox">Chỉ dùng file offline</label>
+            <details class="advanced" id="setup">
+              <summary>Máy xử lý &amp; chuẩn bị mô hình</summary><div id="modelReport" class="help report" aria-live="polite">Đang kiểm tra…</div>
+              <div class="examples"><button id="refresh" class="chip" type="button">Kiểm tra lại</button><button id="prepare" class="chip" type="button">Chuẩn bị</button><button id="checkpoint" class="chip" type="button">Tải mô hình</button></div>
+              <p class="help">Mô hình nằm trong models/text2img. Chọn Stable Diffusion 1.5 và tắt offline để tải checkpoint (~4 GB) hoặc các thành phần còn thiếu.</p>
+            </details>
+          </details>
+          <button id="generate" class="primary" type="submit"><svg class="icon"><use href="#i-spark"/></svg><span id="buttonText">Tạo hình ảnh</span><svg class="icon"><use href="#i-arrow"/></svg></button>
+        </form>
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+      </section>
+      <section class="card canvas-card">
+        <div class="canvas-head"><h2><svg class="icon"><use href="#i-image"/></svg>Ảnh của bạn</h2><button class="icon-button" id="imageMenu" aria-label="Chọn ảnh trong thư viện"><svg class="icon"><use href="#i-more"/></svg></button></div>
+        <div class="progress" id="progress" hidden><div id="bar"></div></div>
+        <div class="canvas" id="canvas">
+          <div class="empty" id="empty"><div class="frame-icon"><svg class="icon"><use href="#i-image"/></svg></div><h3>Mọi hình ảnh bắt đầu từ một ý tưởng.</h3><p>Viết mô tả bên trái để tạo ảnh,<br>hoặc chọn ảnh đã tạo trong Thư viện.</p><span class="hint">YOUR NEXT CREATION STARTS HERE</span></div>
+          <img id="result" alt="Ảnh được tạo bởi AZURAI" hidden>
+        </div>
+        <div class="canvas-foot"><div class="image-meta"><svg class="icon"><use href="#i-image"/></svg><span id="size">512 × 512</span></div><a id="download" class="download" hidden><svg class="icon"><use href="#i-download"/></svg>Tải ảnh PNG</a></div>
+        <span id="resultInfo" class="sr-only">Ảnh kết quả sẽ xuất hiện tại đây.</span>
+      </section>
+    </div>
+    <div class="footer"><span>AZURAI · Creative Studio</span><span>Ảnh và thông số được lưu trên máy xử lý.</span></div>
+  </main>
+  <dialog id="libraryDialog" aria-labelledby="libraryTitle"><div class="dialog-head"><h2 id="libraryTitle">Thư viện ảnh</h2><button class="icon-button" data-close="libraryDialog" aria-label="Đóng thư viện"><svg class="icon"><use href="#i-close"/></svg></button></div><p class="help">Chọn ảnh để xem lại và tải PNG.</p><div id="libraryGrid" class="library-grid"></div></dialog>
+  <dialog id="noticeDialog" aria-labelledby="noticeTitle"><div class="dialog-head"><h2 id="noticeTitle">Trạng thái xử lý</h2><button class="icon-button" data-close="noticeDialog" aria-label="Đóng thông báo"><svg class="icon"><use href="#i-close"/></svg></button></div><div id="noticeCopy" class="notice-copy"></div></dialog>
+</body>
+</html>

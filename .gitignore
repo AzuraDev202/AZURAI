@@ -4,3 +4,6 @@ __pycache__/
 outputs/
 *.safetensors
 *.ckpt
+*.zip
+*.part
+.ruff_cache/

@@ -1,0 +1,10 @@
+[
+  {
+    "id": "sd15",
+    "name": "Stable Diffusion 1.5",
+    "path": "models/text2img/v1-5-pruned-emaonly.safetensors",
+    "config": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+    "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+    "download_url": "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/451f4fe16113bff5a5d2269ed5ad43b0592e9a14/v1-5-pruned-emaonly.safetensors"
+  }
+]
