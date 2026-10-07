@@ -32,8 +32,7 @@ def create(user_id, name, description):
 
 def modify(user_id, project_id, action, filename=None, name=None, description=None):
     with connection() as db:
-        db.execute("SELECT id FROM projects WHERE id=%s AND user_id=%s FOR UPDATE", (project_id, user_id))
-        if not db.execute("SELECT id FROM projects WHERE id = %s AND user_id = %s", (project_id, user_id)).fetchone():
+        if not db.execute("SELECT id FROM projects WHERE id=%s AND user_id=%s FOR UPDATE", (project_id, user_id)).fetchone():
             return False
         if action == "delete":
             db.execute("DELETE FROM project_images WHERE project_id = %s", (project_id,))

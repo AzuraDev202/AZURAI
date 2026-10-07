@@ -18,7 +18,7 @@ def postgres_store(testcase):
     """Isolate each integration test in a PostgreSQL schema."""
     import os
     import uuid
-    from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+    from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode, quote
     import psycopg
     from psycopg import sql
     from azurai.auth import AccountStore
@@ -35,4 +35,4 @@ def postgres_store(testcase):
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query))
     query["options"] = query.get("options", "") + " -csearch_path=" + schema + ",public"
-    return AccountStore(urlunsplit(parts._replace(query=urlencode(query))))
+    return AccountStore(urlunsplit(parts._replace(query=urlencode(query, quote_via=quote))))

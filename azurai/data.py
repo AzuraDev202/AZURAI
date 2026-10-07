@@ -92,7 +92,6 @@ def job(job_id, user_id):
     parameters = result.pop("parameters")
     result["prompt"] = parameters.get("prompt", "")
     result["negative"] = parameters.get("negative", "")
-    result["creative"] = result["creative"]
     return result
 
 
