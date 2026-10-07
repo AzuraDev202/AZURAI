@@ -15,18 +15,18 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from safetensors import SafetensorError
 
-from . import auth, workspace, director, data as storage
+from . import auth, director, workspace
+from . import data as storage
 from .backend import (
     AUTO,
     MEMORY_MODES,
     PRECISIONS,
-    ROOT,
     InferenceService,
     hardware,
     memory_policy,
 )
 from .features import discover_features
-from .paths import FRONTEND_DIR
+from .paths import CONFIG_DIR, FRONTEND_DIR
 
 SERVICE = InferenceService()
 DEFAULT_OFFLINE = False
@@ -45,7 +45,6 @@ SIZE_PRESETS = {
 @asynccontextmanager
 async def lifespan(app):
     storage.recover_jobs()
-    storage.import_legacy(ROOT / "outputs")
     yield
 
 
@@ -497,24 +496,22 @@ def image(job: str, request: Request):
     return library_image(result["filename"], request)
 
 
-def import_old_images():
-    with GUARD:
-        if not ACTIVE:
-            storage.import_legacy(ROOT / "outputs")
-
-
 @app.get("/api/library")
 def library(request: Request):
-    import_old_images()
+    return {"prompts": json.loads((CONFIG_DIR / "prompts.json").read_text(encoding="utf-8"))}
+
+
+@app.get("/api/assets")
+def assets(request: Request):
     return {"images": storage.library(request.state.user["id"])}
 
 
 @app.get("/api/library/{filename}")
+@app.get("/api/assets/{filename}")
 def library_image(filename: str, request: Request):
-    import_old_images()
     record = storage.image(filename, request.state.user["id"])
     if not record:
-        raise HTTPException(404, "Không tìm thấy ảnh trong thư viện.")
+        raise HTTPException(404, "Không tìm thấy ảnh trong dự án.")
     return Response(record["png"], media_type="image/png", headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(filename)})
 
 

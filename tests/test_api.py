@@ -1,6 +1,5 @@
 import json
 import os
-import httpx
 import tempfile
 import threading
 import time
@@ -8,13 +7,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
 from fastapi.testclient import TestClient
+from fixtures import brief, concepts, postgres_store
 from PIL import Image
 
 import azurai.api as studio
 import azurai.backend as inference
 import azurai.features as feature_catalog
-from fixtures import brief, concepts, postgres_store
 
 
 class ApiTests(unittest.TestCase):
@@ -153,7 +153,9 @@ class ApiTests(unittest.TestCase):
             (root / "outputs").mkdir()
             image = root / "outputs" / "saved.png"
             Image.new("RGB", (256, 256)).save(image)
-            with patch.object(studio, "ROOT", root):
+            user_id = self.client.get("/api/auth/session").json()["user"]["id"]
+            studio.storage.store_image(image.name, image.read_bytes(), {}, user_id)
+            with self.subTest("project image membership"):
                 for _ in range(2):
                     self.assertEqual(self.client.post(f"/api/projects/{project_id}/images", json={"filename": "saved.png"}).status_code, 200)
                 self.assertEqual(self.client.get("/api/projects").json()["projects"][0]["images"], ["saved.png"])
@@ -279,12 +281,20 @@ class ApiTests(unittest.TestCase):
             path = outputs / "saved.png"
             Image.new("RGB", (256, 256), "blue").save(path)
             path.with_suffix(".json").write_text('{"prompt":"A blue cat","width":256,"height":256}', encoding="utf-8")
-            with patch.object(studio, "ROOT", root):
-                data = self.client.get("/api/library").json()
-                self.assertEqual(data["images"][0]["prompt"], "A blue cat")
-                self.assertEqual(self.client.get("/api/library/saved.png").content, path.read_bytes())
-                self.assertEqual(self.client.get("/api/library/missing.png").status_code, 404)
-                self.assertEqual(self.client.get("/api/library/..%5csecret.png").status_code, 404)
+            user_id = self.client.get("/api/auth/session").json()["user"]["id"]
+            studio.storage.store_image(path.name, path.read_bytes(), {"prompt": "A blue cat", "width": 256, "height": 256}, user_id)
+            data = self.client.get("/api/assets").json()
+            self.assertEqual(data["images"][0]["prompt"], "A blue cat")
+            self.assertEqual(self.client.get("/api/assets/saved.png").content, path.read_bytes())
+            self.assertEqual(self.client.get("/api/assets/missing.png").status_code, 404)
+            self.assertEqual(self.client.get("/api/assets/..%5csecret.png").status_code, 404)
+
+    def test_library_contains_only_featured_prompts(self):
+        payload = self.client.get("/api/library").json()
+        self.assertNotIn("images", payload)
+        self.assertGreater(len(payload["prompts"]), 0)
+        self.assertEqual({item["feature"] for item in payload["prompts"]}, {"text-to-image", "text-to-video"})
+        self.assertTrue(all(item["title"] and item["prompt"] for item in payload["prompts"]))
 
 
 if __name__ == "__main__":

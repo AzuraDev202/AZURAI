@@ -1,10 +1,10 @@
 """Unified local application data in the PostgreSQL database."""
 import json
+import math
 import time
 from pathlib import Path
 
 from psycopg.types.json import Jsonb
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import auth
@@ -108,10 +108,21 @@ def recover_jobs():
         db.commit()
 
 
+def json_metadata(value):
+    """Preserve nonfinite scheduler constants as strings accepted by JSONB."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
+    if isinstance(value, dict):
+        return {key: json_metadata(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_metadata(item) for item in value]
+    return value
+
+
 def store_image(filename, png, metadata, user_id=None, created=None):
     with connection() as db:
         db.execute("INSERT INTO images VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-                   (filename, user_id, png, Jsonb(metadata), created or time.time()))
+                   (filename, user_id, png, Jsonb(json_metadata(metadata)), created or time.time()))
         db.commit()
 
 

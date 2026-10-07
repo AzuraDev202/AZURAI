@@ -21,7 +21,7 @@ const Director = {
     const epoch=this.epoch;
     const [config, draft, profile]=await Promise.all([api("/api/director/config"),api("/api/director/draft"),api("/api/profile")]);
     if(epoch!==this.epoch || this.user!==currentUser?.id) return;
-    $("directorProvider").textContent=config.message; this.configured=config.configured; this.renderProfile(profile.profile);
+    this.configured=config.configured; this.renderProfile(profile.profile);
     this.version=draft.version;
     if(draft.brief) { this.brief=draft.brief; $("directorIdea").value=draft.brief.idea; this.render(); }
     this.setMode(true);
@@ -81,7 +81,7 @@ const Director = {
       const data=await api("/api/director/concepts",this.request("POST",{idea:$("directorIdea").value,
         aspect:aspect || "square",previous_titles:this.titles}));
       if(epoch!==this.epoch) return;
-      $("directorProvider").textContent=data.message;
+
       const grid=$("directorConcepts"); grid.replaceChildren();
       this.titles=data.concepts.map(brief=>brief.title);
       for(const brief of data.concepts) {
@@ -143,10 +143,6 @@ $("directorSave").onclick=async()=> {
   Director.working=true; Director.syncBusy();
   try { await Director.save(); } catch(error) { $("directorMessage").textContent=error.message; }
   finally { Director.working=false; Director.syncBusy(); }
-};
-$("directorReload").onclick=async()=> {
-  try { await Director.load(); Director.setMode(true); }
-  catch(error) { $("directorMessage").textContent=error.message; }
 };
 $("directorActions").querySelectorAll("[data-director-action]").forEach(button=> {
   button.onclick=()=> {

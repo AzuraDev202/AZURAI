@@ -8,6 +8,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
+    "config/prompts.json",
+    "scripts/start_database.py",
+    "tests/test_start_database.py",
+    "tests/test_metadata_json.py",
     "azurai/database.py", "scripts/migrate_sqlite.py", "docker-compose.yml", ".env.example", "tests/test_migration.py",
     "azurai/__init__.py", "azurai/__main__.py", "azurai/paths.py",
     "azurai/api.py", "azurai/backend.py", "azurai/auth.py", "azurai/features.py", "azurai/workspace.py",

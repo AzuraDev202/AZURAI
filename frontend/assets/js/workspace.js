@@ -1,15 +1,16 @@
 "use strict";
 let projectList = [], libraryItems = [], editingProject = null, detailItem = null, projectFilter = null;
+let promptTemplates = [], pendingPrompt = "";
 function clearWorkspace() {
-  projectList=[]; libraryItems=[]; detailItem=null; projectFilter=null; editingProject=null;
+  projectList=[]; libraryItems=[]; detailItem=null; projectFilter=null; editingProject=null; pendingPrompt=""; promptTemplates=[];
   for (const id of ["projectDialog", "imageDialog"]) if ($(id).open) $(id).close();
-  $("projectsGrid").replaceChildren(); $("libraryPageGrid").replaceChildren();
+  $("projectsGrid").replaceChildren(); $("libraryPageGrid").replaceChildren(); $("projectAssetsGrid").replaceChildren();
 }
 async function loadDashboardStats() {
   try {
     const [library, projects, features] = await Promise.all([api("/api/library"),api("/api/projects"),api("/api/features")]);
     if (!currentUser) return;
-    $("statImages").textContent=library.images.length;
+    $("statImages").textContent=library.prompts.length;
     $("statProjects").textContent=projects.projects.length;
     $("statFeatures").textContent=features.features.length;
     $("homeStats").hidden=false;
@@ -51,7 +52,7 @@ async function restorePreferences() {
 }
 function updateSettingsSummary() {
   $("defaultsSummary").textContent = `${$("width").value} × ${$("height").value} px · ${$("steps").value} bước · CFG ${$("guidance").value}`;
-  $("settingsAccount").textContent = `Đăng nhập: ${currentUser?.username || ""} · Ảnh mới và dự án riêng theo tài khoản; ảnh cũ được giữ trong thư viện chung.`;
+  $("settingsAccount").textContent = `Đăng nhập: ${currentUser?.username || ""} · Dự án và ảnh riêng theo tài khoản. Thư viện dành cho prompt nổi bật.`;
 }
 $("saveDefaults").onclick = async () => {
   try { await api("/api/preferences", jsonRequest("PUT", preferenceValues())); $("settingsStatus").textContent = "Đã lưu cấu hình mặc định cho tài khoản."; }
@@ -69,7 +70,7 @@ async function loadProjects() {
     if(projectFilter) projectFilter=projectList.find(project=>project.id===projectFilter.id)||null;
     for (const id of ["generationProject", "imageProject"]) {
       const previous = $(id).value;
-      fillSelect(id, [{id:"",name:id === "generationProject" ? "Chỉ lưu trong thư viện" : "Chọn dự án"}, ...projectList.map(p=>({id:p.id,name:p.name}))], previous);
+      fillSelect(id, [{id:"",name:id === "generationProject" ? "Chưa chọn dự án" : "Chọn dự án"}, ...projectList.map(p=>({id:p.id,name:p.name}))], previous);
     }
     $("projectsGrid").replaceChildren();
     if (!projectList.length) $("projectsGrid").append(textElement("div", "Chưa có dự án. Tạo bộ sưu tập đầu tiên của bạn.", "card recent-empty"));
@@ -77,14 +78,14 @@ async function loadProjects() {
       const card = document.createElement("article"); card.className = "card project-card";
       const art = document.createElement("div"); art.className = "project-cover";
       if (project.images.length) {
-        const image = document.createElement("img"); image.src = `/api/library/${encodeURIComponent(project.images[0])}`;
+        const image = document.createElement("img"); image.src = `/api/assets/${encodeURIComponent(project.images[0])}`;
         image.alt = project.name; image.onerror = () => { image.remove(); art.textContent = "AZURAI"; }; art.append(image);
       } else art.textContent = "AZURAI";
       const content = document.createElement("div"); content.className = "project-content";
       content.append(textElement("h2",project.name), textElement("p",project.description || "Bộ sưu tập sáng tạo", "help"), textElement("p",`${project.images.length} ảnh · ${new Date(project.created*1000).toLocaleDateString("vi-VN")}`,"help"));
       const actions = document.createElement("div"); actions.className = "project-actions";
-      actions.append(actionButton("Mở",()=>{projectFilter=project; showView("library");}), actionButton("Sửa",()=>openProject(project)), actionButton("Xóa", async()=>{
-        if (!confirm(`Xóa dự án “${project.name}”? Ảnh trong thư viện vẫn được giữ.`)) return;
+      actions.append(actionButton("Mở",()=>{projectFilter=project; showView("project-assets");}), actionButton("Sửa",()=>openProject(project)), actionButton("Xóa", async()=>{
+        if (!confirm(`Xóa dự án “${project.name}”? File ảnh xuất trên máy vẫn được giữ.`)) return;
         try { await api(`/api/projects/${project.id}`,{method:"DELETE"}); await loadProjects(); }
         catch(error){$("projectsStatus").textContent=error.message;}
       }));
@@ -98,6 +99,36 @@ function openProject(project=null) {
   $("projectError").textContent=""; $("projectDialog").showModal();
 }
 $("newProject").onclick=()=>openProject();
+function beginFeatureProject(feature) {
+  if(!feature.supported) return;
+  $("newProjectFeature").textContent=feature.name;
+  $("featureProjectForm").reset();
+  $("featureProjectError").textContent="";
+  pendingPrompt="";
+  showView("new-project");
+  $("featureProjectName").focus();
+}
+$("cancelFeatureProject").onclick=()=>navigate("features");
+$("featureProjectForm").onsubmit=async(event)=>{
+  event.preventDefault();
+  if(busy || Director.working) { $("featureProjectError").textContent="Hãy chờ tác vụ hiện tại hoàn tất trước khi tạo dự án mới."; return; }
+  $("createFeatureProject").disabled=true;
+  $("featureProjectError").textContent="";
+  try {
+    const name=$("featureProjectName").value.trim();
+    if(!name) throw Error("Hãy nhập tên dự án.");
+    const project=await api("/api/projects",jsonRequest("POST",{name,description:$("featureProjectDescription").value.trim()}));
+    await loadProjects();
+    if(!currentUser) return;
+    $("generationProject").value=project.id;
+    $("directorIdea").value=pendingPrompt;
+    $("directorIdea").dispatchEvent(new Event("input"));
+    $("prompt").value=""; updatePromptCount();
+    showView("create");
+    $("directorIdea").focus();
+  }catch(error){$("featureProjectError").textContent=error.message;}
+  finally{$("createFeatureProject").disabled=false;}
+};
 $("projectForm").onsubmit=async(event)=>{
   event.preventDefault(); $("saveProject").disabled=true;
   try {
@@ -108,27 +139,57 @@ $("projectForm").onsubmit=async(event)=>{
 };
 async function loadLibraryPage() {
   $("libraryCount").textContent="Đang tải thư viện…";
-  try {const data=await api("/api/library"); if(!currentUser)return; libraryItems=data.images; renderLibrary();}
+  try {const data=await api("/api/library"); if(!currentUser)return; promptTemplates=data.prompts; renderPromptLibrary();}
   catch(error){$("libraryCount").textContent=error.message;}
 }
+function usePromptTemplate(item){
+  if(item.feature!=="text-to-image")return;
+  beginFeatureProject({name:"Text to Image",supported:true});
+  pendingPrompt=item.prompt;
+  $("featureProjectName").value=item.title;
+  $("featureProjectDescription").value=item.prompt;
+}
+function promptCard(item){
+  const card=document.createElement("article");card.className="card prompt-card";
+  card.append(textElement("span",item.feature==="text-to-image"?"Text to Image":"Text to Video","eyebrow"),textElement("h2",item.title),textElement("p",item.prompt,"prompt-copy"));
+  const actions=document.createElement("div");actions.className="project-actions";
+  const status=textElement("p","","help");status.setAttribute("role","status");
+  actions.append(actionButton("Sao chép",async()=>{
+    try{await navigator.clipboard.writeText(item.prompt);status.textContent="Đã sao chép prompt.";}
+    catch{status.textContent="Không thể truy cập clipboard. Chọn phần prompt và sao chép thủ công.";}
+  }));
+  const use=actionButton("Dùng prompt",()=>usePromptTemplate(item));use.disabled=item.feature!=="text-to-image";
+  if(use.disabled)use.title="Tính năng tạo video chưa được hỗ trợ.";
+  actions.append(use);card.append(actions,status);return card;
+}
+function renderPromptLibrary(){
+  const normalize=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d");
+  const query=normalize($("librarySearch").value.trim()),feature=$("libraryFeature").value;
+  const items=promptTemplates.filter(item=>(feature==="all"||item.feature===feature)&&normalize(`${item.title} ${item.prompt}`).includes(query));
+  $("libraryCount").textContent=`${items.length} prompt`;
+  $("libraryPageGrid").replaceChildren(...items.map(promptCard));
+  if(!items.length)$("libraryPageGrid").append(textElement("div","Không tìm thấy prompt phù hợp. Thử chủ đề hoặc tính năng khác.","card recent-empty"));
+}
+async function loadProjectAssets(){
+  try{const data=await api("/api/assets");if(!currentUser)return;libraryItems=data.images;renderLibrary();}
+  catch(error){$("projectAssetsCount").textContent=error.message;}
+}
 function renderLibrary() {
-  const query=$("librarySearch").value.toLocaleLowerCase("vi");
-  const items=libraryItems.filter(item=>(!projectFilter||projectFilter.images.includes(item.filename)) && `${item.prompt} ${item.filename}`.toLocaleLowerCase("vi").includes(query));
-  items.sort((a,b)=>$("librarySort").value==="oldest"?a.created-b.created:b.created-a.created);
-  $("libraryCount").replaceChildren(textElement("span",`${items.length} ảnh${projectFilter?" · "+projectFilter.name:""}`));
-  if(projectFilter) $("libraryCount").append(actionButton("Xem tất cả",()=>{projectFilter=null;renderLibrary();}));
-  $("libraryPageGrid").replaceChildren();
-  if(!items.length) $("libraryPageGrid").append(textElement("div","Không có ảnh phù hợp. Tạo ảnh trong Studio hoặc đổi từ khóa tìm kiếm.","card recent-empty"));
+  const items=libraryItems.filter(item=>!projectFilter||projectFilter.images.includes(item.filename));
+  $("projectAssetsCount").textContent=`${items.length} ảnh${projectFilter?" · "+projectFilter.name:""}`;
+  $("projectAssetsGrid").replaceChildren();
+  if(!items.length) $("projectAssetsGrid").append(textElement("div","Dự án chưa có ảnh. Tạo ảnh trong Studio và chọn dự án để lưu.","card recent-empty"));
   for(const item of items){
     const button=document.createElement("button"); button.className="library-item";
-    const image=document.createElement("img"); image.loading="lazy"; image.src=`/api/library/${encodeURIComponent(item.filename)}`; image.alt=item.prompt||item.filename;
-    button.append(image,textElement("span",item.prompt||item.filename)); button.onclick=()=>openImageDetails(item); $("libraryPageGrid").append(button);
+    const image=document.createElement("img"); image.loading="lazy"; image.src=`/api/assets/${encodeURIComponent(item.filename)}`; image.alt=item.prompt||item.filename;
+    button.append(image,textElement("span",item.prompt||item.filename)); button.onclick=()=>openImageDetails(item); $("projectAssetsGrid").append(button);
   }
 }
-$("librarySearch").oninput=renderLibrary; $("librarySort").onchange=renderLibrary;
+$("librarySearch").oninput=renderPromptLibrary; $("libraryFeature").onchange=renderPromptLibrary;
+$("backProjects").onclick=()=>navigate("projects");
 $("reloadLibrary").onclick=()=>{projectFilter=null;loadLibraryPage();};
 async function openImageDetails(item){
-  detailItem=item; $("detailImage").src=`/api/library/${encodeURIComponent(item.filename)}`;
+  detailItem=item; $("detailImage").src=`/api/assets/${encodeURIComponent(item.filename)}`;
   $("detailPrompt").textContent=item.prompt||"Không có mô tả.";
   $("detailMeta").textContent=`${item.filename} · ${item.width||"?"} × ${item.height||"?"} px`;
   $("detailDownload").href=$("detailImage").src; $("detailDownload").download=item.filename;

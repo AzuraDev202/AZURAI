@@ -1,0 +1,10 @@
+[
+  {"id":"cinematic-landscape","feature":"text-to-image","title":"Phong cảnh điện ảnh","prompt":"A tranquil mountain lake at sunrise, mist drifting over the water, warm golden light, wide cinematic composition, natural colors, detailed landscape photography"},
+  {"id":"natural-portrait","feature":"text-to-image","title":"Chân dung ánh sáng tự nhiên","prompt":"Portrait of an adult by a window, soft natural daylight, relaxed expression, subtle warm tones, realistic skin texture, shallow depth of field"},
+  {"id":"product-studio","feature":"text-to-image","title":"Ảnh sản phẩm cao cấp","prompt":"A perfume bottle on a stone pedestal, minimal studio background, soft rim lighting, balanced composition, elegant luxury product photography"},
+  {"id":"cozy-interior","feature":"text-to-image","title":"Không gian ấm cúng","prompt":"A cozy reading corner with a comfortable chair, bookshelves and plants, afternoon sunlight, warm wood textures, inviting atmosphere, architectural photography"},
+  {"id":"fantasy-world","feature":"text-to-image","title":"Thế giới kỳ ảo","prompt":"A floating island above the clouds, ancient stone buildings and waterfalls, magical sunset sky, atmospheric depth, detailed fantasy concept art"},
+  {"id":"video-landscape","feature":"text-to-video","title":"Chuyển động phong cảnh","prompt":"A slow cinematic camera glide over a mountain lake at sunrise, gentle mist and subtle water ripples, smooth motion, warm natural light"},
+  {"id":"video-product","feature":"text-to-video","title":"Video giới thiệu sản phẩm","prompt":"A slow camera orbit around a perfume bottle on a stone pedestal, soft studio lighting, subtle reflections, premium minimal product presentation"},
+  {"id":"video-city","feature":"text-to-video","title":"Nhịp sống thành phố","prompt":"A cinematic tracking shot along a city street after rain, glowing storefronts reflected on wet pavement, people walking naturally, smooth camera movement"}
+]

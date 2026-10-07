@@ -2,11 +2,6 @@
 const $ = (id) => document.getElementById(id);
 let presets = {}, aspect = "square", busy = false, latestDevice = null, statusController = null;
 let currentUser = null, authMode = "login", pendingView = null, studioReady = false;
-const examples = {
-  landscape: "Mount Fuji at sunrise, a quiet lake with reflections, soft golden light, cinematic landscape photography, detailed",
-  portrait: "Portrait of a young adult woman beside a window, soft natural light, realistic photography, detailed eyes",
-  product: "A minimal perfume bottle on a dark stone pedestal, soft studio lighting, premium product photography",
-};
 
 async function api(url, options = {}) {
   const response = await fetch(url, options);
@@ -69,7 +64,6 @@ async function refreshDevice() {
       ? ` · ${hardware.vram_total_gb.toFixed(0)} GB` : "");
     $("device").parentElement.title = `${hardware.device} · RAM trống ${hardware.ram_free_gb.toFixed(1)} GB`
       + (hardware.cuda ? ` · VRAM trống ${hardware.vram_free_gb.toFixed(1)} GB` : "");
-    $("selectedModel").textContent = data.selected?.name || "Chưa có mô hình sẵn sàng";
     if ($("selection").value === "Tự động" && data.selected) $("selection").options[0].text = `Tự động · ${data.selected.name}`;
     $("modelReport").textContent = data.report;
     if (!data.selected || !data.selected.ready) { $("setup").open = true; }
@@ -180,14 +174,6 @@ async function run(operation, resumeId = null) {
   }
 }
 
-document.querySelectorAll("[data-example]").forEach((button) => {
-  button.onclick = () => {
-    Director.setMode(true);
-    $("directorIdea").value = examples[button.dataset.example];
-    $("directorIdea").dispatchEvent(new Event("input")); $("directorIdea").focus();
-    document.querySelectorAll("[data-example]").forEach(item => item.classList.toggle("selected", item === button));
-  };
-});
 document.querySelectorAll("[data-aspect]").forEach((button) => {
   button.onclick = () => { aspect = button.dataset.aspect; applyPreset(); };
 });
@@ -217,12 +203,11 @@ $("result").onerror = () => {
 function updatePromptCount() { $("promptCount").textContent = `${$("prompt").value.length}/${$("prompt").maxLength}`; }
 $("prompt").oninput = () => {
   updatePromptCount();
-  document.querySelectorAll("[data-example]").forEach(button => button.classList.remove("selected"));
 };
 
 function showLibraryImage(item) {
   showView("create");
-  const url = `/api/library/${encodeURIComponent(item.filename)}`;
+  const url = `/api/assets/${encodeURIComponent(item.filename)}`;
   $("result").src = url;
   $("result").hidden = false;
   $("empty").hidden = true;
@@ -233,7 +218,7 @@ function showLibraryImage(item) {
   Director.showFeedback(item.filename);
   if (item.creative) Director.restoreCreative(item.creative);
   localStorage.setItem("azuraiPreview", JSON.stringify(item));
-  if ($("libraryDialog").open) $("libraryDialog").close();
+  
 }
 
 async function openLibrary() {
@@ -253,7 +238,7 @@ document.querySelectorAll("[data-nav]").forEach(button => {
     if (button.dataset.nav === "create") $("prompt").focus({preventScroll:true});
   };
 });
-$("imageMenu").onclick = openLibrary;
+$("imageMenu").onclick = () => navigate("projects");
 $("notifications").onclick = () => {
   $("noticeTitle").textContent = "Thông báo";
   $("noticeCopy").textContent = $("status").textContent || "Sẵn sàng. Chưa có yêu cầu đang chạy.";
@@ -266,15 +251,17 @@ $("session").onclick = () => {
 };
 
 function showView(view) {
-  view = ["create", "projects", "features", "library", "settings"].includes(view) && currentUser ? view : "home";
+  view = ["create", "projects", "features", "library", "settings", "new-project", "project-assets"].includes(view) && currentUser ? view : "home";
   $("homeView").hidden = view !== "home";
   $("studioView").hidden = view !== "create";
   $("projectsView").hidden = view !== "projects";
   $("featuresView").hidden = view !== "features";
   $("libraryView").hidden = view !== "library";
   $("settingsView").hidden = view !== "settings";
+  $("newProjectView").hidden = view !== "new-project";
+  $("projectAssetsView").hidden = view !== "project-assets";
   document.querySelectorAll("[data-nav]").forEach(button => {
-    const active = button.dataset.nav === view || (view === "create" && button.dataset.nav === "features");
+    const active = button.dataset.nav === view || (["create", "new-project"].includes(view) && button.dataset.nav === "features") || (view === "project-assets" && button.dataset.nav === "projects");
     button.classList.toggle("active", active);
     if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current");
   });
@@ -283,6 +270,7 @@ function showView(view) {
   if (view === "home" && currentUser && typeof loadDashboardStats === "function") loadDashboardStats();
   if (view === "features" && currentUser) loadFeatures();
   if (view === "projects" && currentUser) loadProjects();
+  if (view === "project-assets" && currentUser) loadProjectAssets();
   if (view === "library" && currentUser) loadLibraryPage();
   if (view === "settings" && currentUser) updateSettingsSummary();
 }
@@ -308,7 +296,7 @@ function featureButton(feature, featured = false) {
   const arrow = document.createElement("span"); arrow.className = "app-action";
   arrow.textContent = feature.supported ? (featured ? "Bắt đầu sáng tạo ↗" : "↗") : "Chưa hỗ trợ";
   button.append(icon, title, arrow);
-  button.onclick = () => { showView("create"); $("prompt").focus(); };
+  button.onclick = () => beginFeatureProject(feature);
   return button;
 }
 function renderFeatureApps() {
@@ -360,7 +348,7 @@ function updateAccount(user) {
     $("homeRecent").replaceChildren();
     const placeholder = document.createElement("div");
     placeholder.className = "card recent-empty";
-    placeholder.textContent = "Đăng nhập để xem ảnh đã tạo trên máy này.";
+    placeholder.textContent = "Đăng nhập để khám phá prompt nổi bật.";
     $("homeRecent").append(placeholder);
   }
 }
@@ -384,20 +372,7 @@ async function loadRecent() {
   try {
     const data = await api("/api/library");
     if (!currentUser) return;
-    $("homeRecent").replaceChildren();
-    if (!data.images.length) {
-      const empty = document.createElement("div"); empty.className = "card recent-empty";
-      empty.textContent = "Chưa có tác phẩm. Mở Studio và tạo hình ảnh đầu tiên của bạn.";
-      $("homeRecent").append(empty);
-    }
-    for (const item of data.images.slice(0, 4)) {
-      const button = document.createElement("button"); button.className = "library-item";
-      const image = document.createElement("img"); image.loading = "lazy";
-      image.src = `/api/library/${encodeURIComponent(item.filename)}`; image.alt = item.prompt || "Ảnh đã tạo";
-      const label = document.createElement("span"); label.textContent = item.prompt || item.filename;
-      button.append(image, label); button.onclick = () => showLibraryImage(item);
-      $("homeRecent").append(button);
-    }
+    $("homeRecent").replaceChildren(...data.prompts.slice(0, 4).map(promptCard));
   } catch (error) { $("homeGreeting").textContent = error.message; }
 }
 
@@ -452,7 +427,7 @@ $("logoutButton").onclick = async () => {
   try {
     await api("/api/auth/logout", {method:"POST"});
     $("accountDialog").close();
-    if ($("libraryDialog").open) $("libraryDialog").close();
+    
     localStorage.removeItem("azuraiPreview"); localStorage.removeItem("azuraiJob");
     $("result").removeAttribute("src"); $("result").hidden = true;
     $("download").hidden = true; $("empty").hidden = false;
@@ -469,12 +444,12 @@ $("startCreating").onclick = () => {
 $("homeLibrary").onclick = openLibrary;
 $("viewAllImages").onclick = openLibrary;
 window.addEventListener("hashchange", () => {
-  const view = ["#create", "#projects", "#features", "#library", "#settings"].includes(location.hash) ? location.hash.slice(1) : "home";
+  const view = ["#create", "#projects", "#features", "#library", "#settings", "#new-project", "#project-assets"].includes(location.hash) ? location.hash.slice(1) : "home";
   if (view !== "home" && !currentUser) { pendingView = view; openAuth(); }
   showView(view);
 });
 window.addEventListener("DOMContentLoaded", async () => {
-  const requested = ["#create", "#projects", "#features", "#library", "#settings"].includes(location.hash) ? location.hash.slice(1) : "home";
+  const requested = ["#create", "#projects", "#features", "#library", "#settings", "#new-project", "#project-assets"].includes(location.hash) ? location.hash.slice(1) : "home";
   try {
     const data = await api("/api/auth/session"); updateAccount(data.user);
     showView(requested);
