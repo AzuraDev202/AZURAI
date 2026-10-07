@@ -1,31 +1,33 @@
 "use strict";
 const Director = {
-  brief: null, version: 0, working: false, epoch: 0, mode: false, titles: [], user: null,
+  brief: null, version: 0, working: false, epoch: 0, mode: true, configured: false, titles: [], user: null, filename: null,
   fields: {subject:"Chủ thể", action:"Hành động", scene:"Bối cảnh", composition:"Bố cục",
     shot:"Cỡ cảnh", angle:"Góc máy", lens:"Ống kính", lighting:"Ánh sáng", palette:"Bảng màu",
     mood:"Cảm xúc", style:"Phong cách", details:"Chi tiết", negative:"Chi tiết muốn tránh"},
   request(method, data) { return {method, headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)}; },
   reset() {
-    this.epoch++; this.brief=null; this.version=0; this.mode=false; this.titles=[]; this.working=false; this.user=null;
-    $("directorMode").checked=false; $("directorPanel").hidden=true;
+    this.epoch++; this.brief=null; this.version=0; this.mode=true; this.configured=false; this.filename=null; this.titles=[]; this.working=false; this.user=null;
+    $("directorMode").checked=true; $("directorPanel").hidden=false;
     $("directorIdea").value=""; $("directorConcepts").replaceChildren();
     $("directorEditor").hidden=true; $("directorMessage").textContent="";
     $("directorFields").replaceChildren(); $("directorTitle").textContent=""; $("directorWarning").textContent="";
     $("directorActions").hidden=true;
-    $("prompt").readOnly=false; $("negative").readOnly=false;
+    $("prompt").readOnly=true; $("negative").readOnly=true;
+    $("imageFeedback").hidden=true; $("feedbackNote").value=""; $("feedbackStatus").textContent="";
+    $("profileFields").replaceChildren(); $("profileStatus").textContent="";
   },
   async load() {
     this.reset(); this.user=currentUser?.id;
     const epoch=this.epoch;
-    const [config, draft]=await Promise.all([api("/api/director/config"),api("/api/director/draft")]);
+    const [config, draft, profile]=await Promise.all([api("/api/director/config"),api("/api/director/draft"),api("/api/profile")]);
     if(epoch!==this.epoch || this.user!==currentUser?.id) return;
-    $("directorProvider").textContent=config.message;
+    $("directorProvider").textContent=config.message; this.configured=config.configured; this.renderProfile(profile.profile);
     this.version=draft.version;
     if(draft.brief) { this.brief=draft.brief; $("directorIdea").value=draft.brief.idea; this.render(); }
-    this.syncBusy();
+    this.setMode(true);
   },
   setMode(value) {
-    this.mode=value; $("directorMode").checked=value; $("directorPanel").hidden=!value;
+    value=true; this.mode=true; $("directorMode").checked=value; $("directorPanel").hidden=!value;
     $("prompt").readOnly=value; $("negative").readOnly=value;
     $("prompt").placeholder=value?"Chọn concept để xem prompt đã biên dịch…": "Mô tả hình ảnh bạn muốn tạo…";
     if(value && this.brief) this.preview();
@@ -63,9 +65,11 @@ const Director = {
   previewRevision: 0,
   syncBusy() {
     const locked=busy || this.working;
-    document.querySelectorAll("#directorPanel input, #directorPanel textarea, #directorPanel button, #directorActions button, #directorMode")
+    document.querySelectorAll("#directorPanel input, #directorPanel textarea, #directorPanel button, #directorActions button, #imageFeedback button, #imageFeedback input, #directorMode")
       .forEach(el=>el.disabled=locked);
-    $("generate").disabled=locked || (this.mode && !this.brief);
+    $("generate").disabled=locked || !this.configured || !this.brief;
+    $("directorDevelop").disabled=locked || !this.configured;
+    $("directorMode").disabled=true;
     $("directorActions").hidden=!this.mode || !this.brief;
   },
   async develop() {
@@ -105,6 +109,22 @@ const Director = {
     $("directorWarning").textContent=saved.warnings.join(" ");
     $("directorMessage").textContent=`Đã lưu brief · phiên bản ${saved.version}`;
   },
+  renderProfile(profile) {
+    $("profile-enabled").checked=profile.enabled;
+    $("profile-learn_from_feedback").checked=profile.learn_from_feedback;
+    const labels={purpose:"Mục tiêu sáng tạo",style:"Phong cách yêu thích",palette:"Bảng màu",lighting:"Ánh sáng",avoid:"Chi tiết muốn tránh"};
+    $("profileFields").replaceChildren();
+    for(const [key,label] of Object.entries(labels)) {
+      const title=document.createElement("label"), input=document.createElement("textarea");
+      title.htmlFor=input.id=`profile-${key}`; title.textContent=label; input.rows=2;
+      input.maxLength=["purpose","avoid"].includes(key)?500:300; input.value=profile[key];
+      $("profileFields").append(title,input);
+    }
+  },
+  showFeedback(filename) {
+    this.filename=filename || null; $("imageFeedback").hidden=!this.filename;
+    $("feedbackNote").value=""; $("feedbackStatus").textContent="";
+  },
   async restoreCreative(creative) {
     if(!creative?.brief || busy || this.working) return;
     this.brief=creative.brief; aspect=this.brief.aspect; applyPreset(); $("directorIdea").value=this.brief.idea;
@@ -112,7 +132,11 @@ const Director = {
     $("directorMessage").textContent="Đã mở brief của ảnh. Bản nháp sẽ được cập nhật khi bạn lưu hoặc tạo ảnh.";
   },
 };
-$("directorMode").onchange=()=>Director.setMode($("directorMode").checked);
+$("directorMode").onchange=()=>Director.setMode(true);
+$("directorIdea").addEventListener("input",()=> {
+  Director.brief=null; $("directorEditor").hidden=true; $("directorConcepts").replaceChildren();
+  $("prompt").value=""; updatePromptCount(); Director.syncBusy();
+});
 $("directorDevelop").onclick=()=>Director.develop();
 $("directorSave").onclick=async()=> {
   if(busy || Director.working) return;
@@ -133,3 +157,26 @@ $("directorActions").querySelectorAll("[data-director-action]").forEach(button=>
     else { $(`brief-${action}`).focus(); $(`brief-${action}`).scrollIntoView({behavior:"smooth",block:"center"}); }
   };
 });
+
+$("profileSave").onclick=async()=> {
+  const epoch=Director.epoch;
+  try {
+    const profile={enabled:$("profile-enabled").checked,learn_from_feedback:$("profile-learn_from_feedback").checked};
+    for(const key of ["purpose","style","palette","lighting","avoid"]) profile[key]=$(`profile-${key}`).value;
+    await api("/api/profile",Director.request("PUT",profile));
+    if(epoch===Director.epoch) $("profileStatus").textContent="Đã lưu. Sở thích áp dụng khi đề xuất concept tiếp theo.";
+  } catch(error) { if(epoch===Director.epoch) $("profileStatus").textContent=error.message; }
+};
+$("profileForget").onclick=async()=> {
+  const epoch=Director.epoch;
+  try { await api("/api/profile/feedback",{method:"DELETE"}); if(epoch===Director.epoch) $("profileStatus").textContent="Đã xóa phản hồi khỏi bộ nhớ cá nhân. Ảnh vẫn được giữ lại."; }
+  catch(error) { if(epoch===Director.epoch) $("profileStatus").textContent=error.message; }
+};
+for(const [id,rating] of [["feedbackLike",1],["feedbackDislike",-1],["feedbackClear",0]]) $(id).onclick=async()=> {
+  if(!Director.filename || busy || Director.working) return;
+  const epoch=Director.epoch;
+  try {
+    await api(`/api/library/${encodeURIComponent(Director.filename)}/feedback`,Director.request("PUT",{rating,note:$("feedbackNote").value}));
+    if(epoch===Director.epoch) $("feedbackStatus").textContent=rating===0?"Đã bỏ đánh giá.":"Đã ghi nhận. Director sẽ tham khảo khi phát triển concept tiếp theo.";
+  } catch(error) { if(epoch===Director.epoch) $("feedbackStatus").textContent=error.message; }
+};

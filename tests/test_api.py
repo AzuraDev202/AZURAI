@@ -1,3 +1,6 @@
+import json
+import os
+import httpx
 import tempfile
 import threading
 import time
@@ -11,6 +14,7 @@ from PIL import Image
 import azurai.api as studio
 import azurai.backend as inference
 import azurai.features as feature_catalog
+from fixtures import brief, concepts
 
 
 class ApiTests(unittest.TestCase):
@@ -22,9 +26,26 @@ class ApiTests(unittest.TestCase):
         self.addCleanup(self.store_patch.stop)
         self.client = TestClient(studio.app, base_url="http://127.0.0.1")
         self.client.post("/api/auth/register", json={"username": "tester", "password": "test-password"})
+        env_patch = patch.dict(os.environ, {"AZURAI_DIRECTOR_MODEL": "test-model"})
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        def llm_post(url, json):
+            payload = __import__("json").loads(json["messages"][1]["content"])
+            output = {"concepts": concepts(payload["idea"]["idea"])} if "idea" in payload else payload["approved_brief"]
+            return httpx.Response(200, json={"message": {"content": __import__("json").dumps(output)}}, request=httpx.Request("POST", url))
+        client_patch = patch("azurai.director.httpx.Client")
+        self.llm_client = client_patch.start()
+        self.llm_client.return_value.__enter__.return_value.post.side_effect = llm_post
+        self.addCleanup(client_patch.stop)
         with studio.GUARD:
             studio.JOBS.clear()
             studio.ACTIVE = None
+
+    def submit_image(self, payload):
+        saved = self.client.get("/api/director/draft").json()
+        self.client.put("/api/director/draft", json={"version": saved["version"], "brief": brief(payload.get("prompt", "cat")).model_dump()})
+        params = {key: value for key, value in payload.items() if key not in {"prompt", "negative"}}
+        return self.client.post("/api/director/generate", json={"version": saved["version"] + 1, **params})
 
     def wait_job(self, job):
         deadline = time.monotonic() + 3
@@ -48,11 +69,11 @@ class ApiTests(unittest.TestCase):
             path = Path(directory) / "cat.png"
             Image.new("RGB", (256, 256), "orange").save(path)
             with patch.object(studio.SERVICE, "generate", return_value=(str(path), str(path), "done")) as generate:
-                response = self.client.post("/api/generate", json={"prompt": "Tạo con mèo", "width": 256, "height": 256})
+                response = self.submit_image({"prompt": "Tạo con mèo", "width": 256, "height": 256})
                 self.assertEqual(response.status_code, 202)
                 job = response.json()["id"]
                 self.assertEqual(self.wait_job(job)["state"], "done")
-                self.assertEqual(generate.call_args.kwargs["prompt"], "Tạo con mèo")
+                self.assertTrue(generate.call_args.kwargs["prompt"].startswith("Tạo con mèo"))
                 image = self.client.get(f"/api/images/{job}")
                 self.assertEqual(image.headers["content-type"], "image/png")
                 self.assertEqual(image.content, path.read_bytes())
@@ -73,7 +94,7 @@ class ApiTests(unittest.TestCase):
             raise ValueError("Checkpoint thiếu")
 
         with patch.object(studio.SERVICE, "generate", side_effect=failing_inference):
-            first = self.client.post("/api/generate", json={"prompt": "cat"})
+            first = self.submit_image({"prompt": "cat"})
             self.assertTrue(entered.wait(2))
             try:
                 self.assertEqual(self.client.post("/api/prepare", json={}).status_code, 409)
@@ -177,7 +198,7 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(generate.call_args.kwargs["seed"], 42)
                 import json
                 metadata = json.loads(image.with_suffix(".json").read_text())
-                self.assertEqual(metadata["creative"], {"brief": brief, "version": 1})
+                self.assertEqual(metadata["creative"]["brief"], brief)
         self.client.post("/api/auth/logout")
         self.client.post("/api/auth/login", json={"username": "tester", "password": "test-password"})
         self.assertEqual(self.client.get("/api/director/draft").json()["brief"], brief)
@@ -194,8 +215,61 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(self.client.post("/api/director/concepts", json={"idea": "cat"}).status_code, 502)
         self.assertFalse(studio.DIRECTOR_GUARD.locked())
         with studio.DIRECTOR_GUARD:
-            self.assertEqual(self.client.post("/api/generate", json={"prompt": "cat"}).status_code, 409)
+            self.assertEqual(self.submit_image({"prompt": "cat"}).status_code, 409)
             self.assertEqual(self.client.post("/api/director/concepts", json={"idea": "cat"}).status_code, 409)
+
+    def test_required_llm_and_raw_prompt_cannot_bypass_director(self):
+        with patch.object(studio.SERVICE, "generate") as generate:
+            self.assertEqual(self.client.post("/api/generate", json={"prompt": "cat"}).status_code, 409)
+            with patch.dict(os.environ, {"AZURAI_DIRECTOR_MODEL": ""}):
+                self.assertEqual(self.client.post("/api/director/concepts", json={"idea": "cat"}).status_code, 502)
+                self.assertEqual(self.submit_image({"prompt": "cat"}).status_code, 502)
+            generate.assert_not_called()
+            self.assertEqual(self.client.get("/api/history").json()["jobs"], [])
+
+    def test_personal_context_reaches_llm_and_jobs_images_survive_memory_and_file_loss(self):
+        profile = {"style": "watercolor", "palette": "pastel", "purpose": "personal art"}
+        self.assertEqual(self.client.put("/api/profile", json=profile).status_code, 200)
+        self.client.post("/api/director/concepts", json={"idea": "cat"})
+        payload = json.loads(self.llm_client.return_value.__enter__.return_value.post.call_args.kwargs["json"]["messages"][1]["content"])
+        self.assertEqual(payload["personal_context"]["profile"]["style"], "watercolor")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "private.png"
+            Image.new("RGB", (256, 256)).save(path)
+            png = path.read_bytes()
+            with patch.object(studio.SERVICE, "generate", return_value=(str(path), str(path), "done")):
+                first = self.submit_image({"prompt": "cat"})
+                job_id = first.json()["id"]
+                self.assertEqual(self.wait_job(job_id)["state"], "done")
+            path.unlink()
+            with studio.GUARD:
+                studio.JOBS.clear()
+            self.assertEqual(self.client.get(f"/api/images/{job_id}").content, png)
+            self.assertEqual(self.client.get("/api/history").json()["jobs"][0]["id"], job_id)
+            self.assertEqual(self.client.put("/api/library/private.png/feedback", json={"rating": 1, "note": "warm light"}).status_code, 200)
+            self.client.post("/api/director/concepts", json={"idea": "a mountain"})
+            payload = json.loads(self.llm_client.return_value.__enter__.return_value.post.call_args.kwargs["json"]["messages"][1]["content"])
+            self.assertEqual(payload["personal_context"]["feedback_examples"][0]["note"], "warm light")
+            other = TestClient(studio.app, base_url="http://127.0.0.1")
+            other.post("/api/auth/register", json={"username": "private2", "password": "test-password"})
+            for route in [f"/api/jobs/{job_id}", f"/api/images/{job_id}", "/api/library/private.png"]:
+                self.assertEqual(other.get(route).status_code, 404)
+            self.assertEqual(other.put("/api/library/private.png/feedback", json={"rating": -1}).status_code, 404)
+            self.assertEqual(other.get("/api/history").json()["jobs"], [])
+            self.assertEqual(other.get("/api/profile").json()["profile"]["style"], "")
+            self.client.delete("/api/profile/feedback")
+            self.client.post("/api/director/concepts", json={"idea": "a mountain"})
+            payload = json.loads(self.llm_client.return_value.__enter__.return_value.post.call_args.kwargs["json"]["messages"][1]["content"])
+            self.assertEqual(payload["personal_context"]["feedback_examples"], [])
+
+    def test_llm_review_failure_blocks_saved_brief_generation(self):
+        invalid = httpx.Response(200, json={"message": {"content": "{}"}}, request=httpx.Request("POST", "http://localhost/api/chat"))
+        self.llm_client.return_value.__enter__.return_value.post.side_effect = None
+        self.llm_client.return_value.__enter__.return_value.post.return_value = invalid
+        with patch.object(studio.SERVICE, "generate") as generate:
+            self.assertEqual(self.submit_image({"prompt": "cat"}).status_code, 502)
+            generate.assert_not_called()
+        self.assertFalse(studio.DIRECTOR_GUARD.locked())
 
     def test_library_lists_saved_images_and_rejects_paths_outside_outputs(self):
         with tempfile.TemporaryDirectory() as directory:

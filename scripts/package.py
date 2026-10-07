@@ -12,7 +12,7 @@ FILES = [
     "azurai/api.py", "azurai/backend.py", "azurai/auth.py", "azurai/features.py", "azurai/workspace.py",
     "frontend/index.html", "frontend/assets/css/studio.css", "frontend/assets/js/studio.js",
     "frontend/assets/js/workspace.js", "frontend/assets/js/director.js",
-    "frontend/assets/css/director.css", "azurai/director.py", "tests/test_director.py",
+    "frontend/assets/css/director.css", "azurai/director.py", "azurai/data.py", "scripts/backup.py", "tests/test_director.py", "tests/test_data.py", "tests/fixtures.py",
     "frontend/assets/css/dashboard.css",
     "config/models.json", "requirements.txt", "setup.ps1", "run.ps1",
     "scripts/setup.ps1", "scripts/run.ps1", "scripts/package.py",

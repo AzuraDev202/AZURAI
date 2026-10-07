@@ -92,10 +92,19 @@
       <section class="card controls">
         <h2 class="section-title"><svg class="icon"><use href="#i-file"/></svg>Ý tưởng của bạn</h2>
         <p class="subtitle">Mô tả chi tiết ý tưởng để tạo ra hình ảnh như mong muốn.</p>
-        <label class="director-toggle"><input id="directorMode" type="checkbox"> ✨ Creative Director</label>
-        <section id="directorPanel" class="director-panel" hidden aria-labelledby="directorHeading">
+        <div class="director-toggle"><input id="directorMode" type="checkbox" checked hidden disabled> ✨ Creative Director · Luôn bật</div>
+        <section id="directorPanel" class="director-panel" aria-labelledby="directorHeading">
           <h3 id="directorHeading">Từ ý tưởng đến hướng sáng tạo</h3>
           <p id="directorProvider" class="help">Đang kiểm tra Creative Director…</p>
+          <details class="advanced" id="personalSettings">
+            <summary>🧠 Phong cách của tôi</summary>
+            <p class="help">Director dùng hồ sơ và phản hồi của bạn để đề xuất concept. Ý tưởng hiện tại luôn được ưu tiên.</p>
+            <label><input id="profile-enabled" type="checkbox" checked> Cá nhân hóa concept</label>
+            <label><input id="profile-learn_from_feedback" type="checkbox" checked> Học từ ảnh thích / không thích</label>
+            <div id="profileFields"></div>
+            <div class="director-toolbar"><button id="profileSave" type="button" class="chip">Lưu sở thích</button><button id="profileForget" type="button" class="chip">Quên phản hồi ảnh</button></div>
+            <p id="profileStatus" class="help" role="status"></p>
+          </details>
           <label for="directorIdea">Ý tưởng của bạn</label>
           <textarea id="directorIdea" rows="3" maxlength="1500" placeholder="Một người đàn ông thất bại nhưng vẫn tiếp tục cố gắng…"></textarea>
           <div class="director-toolbar"><button id="directorDevelop" type="button" class="chip">✨ Đề xuất 3 concept</button><button id="directorReload" type="button" class="chip">Mở lại brief đã lưu</button></div>
@@ -156,6 +165,13 @@
           <img id="result" alt="Ảnh được tạo bởi AZURAI" hidden>
         </div>
         <div class="canvas-foot"><div class="image-meta"><svg class="icon"><use href="#i-image"/></svg><span id="size">512 × 512</span></div><a id="download" class="download" hidden><svg class="icon"><use href="#i-download"/></svg>Tải ảnh PNG</a></div>
+        <div id="imageFeedback" class="director-actions" hidden>
+          <button id="feedbackLike" type="button" class="chip">👍 Hợp ý tôi</button>
+          <button id="feedbackDislike" type="button" class="chip">👎 Chưa hợp ý</button>
+          <button id="feedbackClear" type="button" class="chip">Bỏ đánh giá</button>
+          <label for="feedbackNote">Điều bạn thích / muốn đổi</label><input id="feedbackNote" maxlength="1000" placeholder="Ví dụ: thích ánh sáng ấm, muốn bối cảnh đơn giản hơn…">
+          <p id="feedbackStatus" class="help" role="status"></p>
+        </div>
         <div id="directorActions" class="director-actions" hidden role="group" aria-label="Tiếp tục sáng tạo">
           <button type="button" class="chip" data-director-action="variation">🎲 Biến thể mới</button>
           <button type="button" class="chip" data-director-action="style">🎨 Đổi phong cách</button>
@@ -172,7 +188,7 @@
   </main>
   <dialog id="libraryDialog" aria-labelledby="libraryTitle"><div class="dialog-head"><h2 id="libraryTitle">Thư viện ảnh</h2><button class="icon-button" data-close="libraryDialog" aria-label="Đóng thư viện"><svg class="icon"><use href="#i-close"/></svg></button></div><p class="help">Chọn ảnh để xem lại và tải PNG.</p><div id="libraryGrid" class="library-grid"></div></dialog>
   <dialog id="noticeDialog" aria-labelledby="noticeTitle"><div class="dialog-head"><h2 id="noticeTitle">Thông báo</h2><button class="icon-button" data-close="noticeDialog" aria-label="Đóng thông báo"><svg class="icon"><use href="#i-close"/></svg></button></div><div id="noticeCopy" class="notice-copy"></div></dialog>
-  <dialog id="authDialog" class="auth-dialog" aria-labelledby="authTitle"><div class="dialog-head"><span class="eyebrow">AZURAI ACCOUNT</span><button class="icon-button" data-close="authDialog" aria-label="Đóng đăng nhập"><svg class="icon"><use href="#i-close"/></svg></button></div><div class="auth-mark"><svg class="icon"><use href="#i-spark"/></svg></div><h2 id="authTitle">Chào mừng trở lại</h2><p class="help" id="authDescription">Đăng nhập để tiếp tục sáng tạo với AZURAI.</p><form id="authForm"><label for="username">Tên đăng nhập</label><input id="username" name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z0-9_]+" placeholder="Tên gồm chữ, số hoặc dấu _" required><label for="password">Mật khẩu</label><input id="password" name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" placeholder="Ít nhất 8 ký tự" required><p id="authError" class="auth-error" role="alert"></p><button id="authSubmit" class="primary" type="submit">Đăng nhập</button></form><p class="auth-switch"><span id="authSwitchCopy">Chưa có tài khoản?</span> <button id="authSwitch" type="button">Tạo tài khoản</button></p><p class="help">Tài khoản cục bộ trên máy chạy AZURAI. Thư viện ảnh dùng chung trên máy này.</p></dialog>
+  <dialog id="authDialog" class="auth-dialog" aria-labelledby="authTitle"><div class="dialog-head"><span class="eyebrow">AZURAI ACCOUNT</span><button class="icon-button" data-close="authDialog" aria-label="Đóng đăng nhập"><svg class="icon"><use href="#i-close"/></svg></button></div><div class="auth-mark"><svg class="icon"><use href="#i-spark"/></svg></div><h2 id="authTitle">Chào mừng trở lại</h2><p class="help" id="authDescription">Đăng nhập để tiếp tục sáng tạo với AZURAI.</p><form id="authForm"><label for="username">Tên đăng nhập</label><input id="username" name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z0-9_]+" placeholder="Tên gồm chữ, số hoặc dấu _" required><label for="password">Mật khẩu</label><input id="password" name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" placeholder="Ít nhất 8 ký tự" required><p id="authError" class="auth-error" role="alert"></p><button id="authSubmit" class="primary" type="submit">Đăng nhập</button></form><p class="auth-switch"><span id="authSwitchCopy">Chưa có tài khoản?</span> <button id="authSwitch" type="button">Tạo tài khoản</button></p><p class="help">Tài khoản cục bộ trên máy chạy AZURAI. Ảnh mới riêng theo tài khoản; ảnh cũ trong thư viện chung.</p></dialog>
   <dialog id="accountDialog" class="auth-dialog" aria-labelledby="accountTitle"><div class="dialog-head"><h2 id="accountTitle">Tài khoản</h2><button class="icon-button" data-close="accountDialog" aria-label="Đóng tài khoản"><svg class="icon"><use href="#i-close"/></svg></button></div><p id="accountName"></p><p class="help">Phiên đăng nhập có hiệu lực trong 7 ngày. Đăng xuất để kết thúc phiên trên trình duyệt này.</p><button id="logoutButton" class="chip">Đăng xuất</button><p id="logoutError" class="auth-error" role="alert"></p></dialog>
   <dialog id="projectDialog" class="auth-dialog" aria-labelledby="projectDialogTitle"><div class="dialog-head"><h2 id="projectDialogTitle">Tạo dự án</h2><button class="icon-button" data-close="projectDialog" aria-label="Đóng"><svg class="icon"><use href="#i-close"/></svg></button></div><form id="projectForm"><label for="projectName">Tên dự án</label><input id="projectName" maxlength="80" required><label for="projectDescription">Mô tả</label><textarea id="projectDescription" maxlength="1000" rows="3"></textarea><button class="primary" id="saveProject">Lưu dự án</button><p id="projectError" class="auth-error" role="alert"></p></form></dialog>
   <dialog id="imageDialog" aria-labelledby="imageDialogTitle"><div class="dialog-head"><h2 id="imageDialogTitle">Chi tiết tác phẩm</h2><button class="icon-button" data-close="imageDialog" aria-label="Đóng"><svg class="icon"><use href="#i-close"/></svg></button></div><img id="detailImage" class="detail-image" alt="Tác phẩm đã lưu"><p id="detailPrompt"></p><p id="detailMeta" class="help"></p><div class="page-toolbar"><a id="detailDownload" class="download">Tải PNG</a><button id="reuseImage" class="chip">Dùng lại mô tả</button></div><label for="imageProject">Thêm vào dự án</label><div class="page-toolbar"><select id="imageProject"></select><button id="addImageProject" class="chip">Thêm ảnh</button></div><button id="removeImageProject" class="chip" hidden>Gỡ ảnh khỏi dự án</button><p id="detailStatus" role="status" class="status"></p></dialog>

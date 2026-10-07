@@ -4,16 +4,18 @@ import json
 import secrets
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from safetensors import SafetensorError
 
-from . import auth, workspace, director
+from . import auth, workspace, director, data as storage
 from .backend import (
     AUTO,
     MEMORY_MODES,
@@ -40,7 +42,14 @@ SIZE_PRESETS = {
     "Cao": {"square": (768, 768), "landscape": (1024, 768), "portrait": (768, 1024),
             "wide": (1024, 576), "tall": (576, 1024)},
 }
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+@asynccontextmanager
+async def lifespan(app):
+    storage.recover_jobs()
+    storage.import_legacy(ROOT / "outputs")
+    yield
+
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 class Settings(BaseModel):
@@ -72,6 +81,11 @@ class DirectorGeneration(Settings):
     steps: int = Field(default=20, ge=1, le=50)
     guidance: float = Field(default=7, ge=1, le=15)
     seed: int = Field(default=-1, ge=-1, le=2147483647)
+
+
+class Feedback(BaseModel):
+    rating: Literal[-1, 0, 1]
+    note: str = Field(default="", max_length=1000)
 
 
 class Credentials(BaseModel):
@@ -197,12 +211,19 @@ def director_configuration():
 
 
 @app.post("/api/director/concepts")
-def director_concepts(data: director.Idea):
+def director_concepts(data: director.Idea, request: Request):
     with GUARD:
         if ACTIVE or not DIRECTOR_GUARD.acquire(blocking=False):
             raise HTTPException(409, "AZURAI đang xử lý một yêu cầu. Hãy chờ hoàn tất.")
     try:
-        return director.develop(data)
+        user_id = request.state.user["id"]
+        personal = storage.personal_context(user_id)
+        director.require_model()
+        with SERVICE.lock:
+            SERVICE.unload()
+        result = director.develop(data, personal)
+        storage.record_director(user_id, "concepts", {"idea": data.model_dump(), "personal_context": personal}, result)
+        return result
     except director.DirectorError as exc:
         raise HTTPException(502, str(exc)) from exc
     finally:
@@ -235,9 +256,55 @@ def director_generate(data: DirectorGeneration, request: Request):
         raise HTTPException(400, "Hãy chọn và lưu brief trước khi tạo ảnh.")
     if saved["version"] != data.version:
         raise HTTPException(409, "Brief đã thay đổi. Tải lại brief trước khi tạo ảnh.")
-    compiled = director.compile_prompt(director.Brief.model_validate(saved["brief"]))
-    generation = Generation(**data.model_dump(exclude={"version"}), prompt=compiled["prompt"], negative=compiled["negative"])
-    return start_job("generate", generation, creative=saved)
+    with GUARD:
+        if ACTIVE or not DIRECTOR_GUARD.acquire(blocking=False):
+            raise HTTPException(409, "AZURAI đang xử lý một yêu cầu. Hãy chờ hoàn tất.")
+    try:
+        user_id = request.state.user["id"]
+        personal = storage.personal_context(user_id)
+        director.require_model()
+        with SERVICE.lock:
+            SERVICE.unload()
+        reviewed = director.direct_for_generation(director.Brief.model_validate(saved["brief"]), personal)
+        creative = {"version": saved["version"], "brief": reviewed.model_dump(),
+                    "approved_brief": saved["brief"], "personal_context": personal,
+                    "director_model": director.configuration()["model"]}
+        compiled = director.compile_prompt(reviewed)
+        generation = Generation(**data.model_dump(exclude={"version"}), prompt=compiled["prompt"], negative=compiled["negative"])
+        storage.record_director(user_id, "generation_review", {"brief": saved["brief"], "personal_context": personal}, reviewed.model_dump())
+        return start_job("generate", generation, user_id, creative=creative, director_reserved=True)
+    except director.DirectorError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        DIRECTOR_GUARD.release()
+
+
+@app.get("/api/profile")
+def personal_profile(request: Request):
+    return {"profile": storage.profile(request.state.user["id"])}
+
+
+@app.put("/api/profile")
+def save_personal_profile(data: storage.Profile, request: Request):
+    return {"profile": storage.profile(request.state.user["id"], data.model_dump())}
+
+
+@app.delete("/api/profile/feedback")
+def forget_feedback(request: Request):
+    storage.clear_feedback(request.state.user["id"])
+    return {"ok": True}
+
+
+@app.get("/api/history")
+def generation_history(request: Request):
+    return {"jobs": storage.history(request.state.user["id"])}
+
+
+@app.put("/api/library/{filename}/feedback")
+def image_feedback(filename: str, data: Feedback, request: Request):
+    if not storage.feedback(request.state.user["id"], filename, data.rating, data.note):
+        raise HTTPException(404, "Không tìm thấy ảnh.")
+    return {"ok": True, "rating": data.rating}
 
 
 @app.get("/api/options")
@@ -296,7 +363,7 @@ def delete_project(project_id: str, request: Request):
 
 @app.post("/api/projects/{project_id}/images")
 def add_project_image(project_id: str, data: ProjectImage, request: Request):
-    library_image(data.filename)
+    library_image(data.filename, request)
     if not workspace.modify(request.state.user["id"], project_id, "add", filename=data.filename):
         raise HTTPException(404, "Không tìm thấy dự án.")
     return {"ok": True}
@@ -325,27 +392,31 @@ def device(selection: str = AUTO, mode: str = AUTO, precision: str = AUTO, offli
             "report": report.replace("**", "").replace("`", ""), "suggested_size": suggested_size}
 
 
-def worker(job, operation, data, creative=None):
+def worker(job, operation, data, user_id, creative=None):
     global ACTIVE
 
     def progress(value, message):
         with GUARD:
             JOBS[job].update(progress=max(0, min(1, float(value))), message=message)
+        storage.update_job(job, "running", message, max(0, min(1, float(value))))
 
     try:
         if operation == "generate":
             image, _, message = SERVICE.generate(**data.model_dump(), progress=progress)
+            storage.update_job(job, "running", message, 0.99, Path(image).name if image else None)
             if creative and image:
                 sidecar = Path(image).with_suffix(".json")
-                metadata = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.is_file() else {}
+                metadata = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.is_file() else data.model_dump()
                 metadata["creative"] = creative
                 sidecar.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+                storage.store_image(Path(image).name, Path(image).read_bytes(), metadata, user_id)
         elif operation == "prepare":
             message = SERVICE.prepare(**data.model_dump(), progress=progress)
             image = None
         else:
             message = SERVICE.download_checkpoint(data.selection, data.offline, progress)
             image = None
+        storage.update_job(job, "done", message, 1, Path(image).name if image else None)
         with GUARD:
             JOBS[job].update(state="done", path=image, filename=Path(image).name if image else None,
                              message=message, progress=1)
@@ -355,6 +426,7 @@ def worker(job, operation, data, creative=None):
             with SERVICE.lock:
                 SERVICE.unload()
             message = "Máy xử lý hết bộ nhớ. Giảm kích thước ảnh và chọn Tiết kiệm VRAM, rồi thử lại."
+        storage.update_job(job, "error", message)
         with GUARD:
             JOBS[job].update(state="error", message=message)
     finally:
@@ -362,12 +434,12 @@ def worker(job, operation, data, creative=None):
             ACTIVE = None
 
 
-def start_job(operation, data, creative=None):
+def start_job(operation, data, user_id, creative=None, director_reserved=False):
     global ACTIVE
     if data.selection not in [AUTO, *[entry["id"] for entry in SERVICE.models()]]:
         raise HTTPException(400, "Mô hình không còn trong danh sách. Bấm Kiểm tra lại.")
     with GUARD:
-        if ACTIVE or DIRECTOR_GUARD.locked():
+        if ACTIVE or (DIRECTOR_GUARD.locked() and not director_reserved):
             raise HTTPException(409, "AZURAI đang xử lý một yêu cầu. Hãy chờ hoàn tất.")
         for key in list(JOBS):
             if time.time() - JOBS[key]["created"] > 86400:
@@ -375,15 +447,17 @@ def start_job(operation, data, creative=None):
         while len(JOBS) >= 32:
             del JOBS[next(iter(JOBS))]
         job = secrets.token_hex(16)
+        storage.create_job(job, user_id, operation, data.model_dump(), creative)
         ACTIVE = job
         JOBS[job] = {"state": "running", "progress": 0, "message": "Đang chuẩn bị mô hình…",
                      "created": time.time(), "operation": operation}
     try:
-        threading.Thread(target=worker, args=(job, operation, data, creative), daemon=True).start()
+        threading.Thread(target=worker, args=(job, operation, data, user_id, creative), daemon=True).start()
     except RuntimeError:
         with GUARD:
             ACTIVE = None
             del JOBS[job]
+        storage.update_job(job, "error", "Không khởi tạo được tác vụ.")
         raise
     return {"id": job}
 
@@ -392,73 +466,56 @@ def start_job(operation, data, creative=None):
 def generate(data: Generation):
     if not data.prompt.strip():
         raise HTTPException(400, "Hãy nhập mô tả hình ảnh.")
-    return start_job("generate", data)
+    raise HTTPException(409, "Mọi ảnh phải qua Creative Director. Dùng /api/director/concepts và /api/director/generate.")
 
 
 @app.post("/api/prepare", status_code=202)
-def prepare(data: Settings):
-    return start_job("prepare", data)
+def prepare(data: Settings, request: Request):
+    return start_job("prepare", data, request.state.user["id"])
 
 
 @app.post("/api/checkpoint", status_code=202)
-def checkpoint(data: Settings):
+def checkpoint(data: Settings, request: Request):
     if data.offline:
         raise HTTPException(400, "Tắt offline để tải checkpoint.")
-    return start_job("checkpoint", data)
+    return start_job("checkpoint", data, request.state.user["id"])
 
 
 @app.get("/api/jobs/{job}")
-def status(job: str):
-    with GUARD:
-        if job not in JOBS:
-            raise HTTPException(404, "Không tìm thấy yêu cầu. Yêu cầu có thể đã hết hạn hoặc máy chủ đã khởi động lại.")
-        result = JOBS[job].copy()
-    result.pop("path", None)
+def status(job: str, request: Request):
+    result = storage.job(job, request.state.user["id"])
+    if not result:
+        raise HTTPException(404, "Không tìm thấy yêu cầu.")
     return result
 
 
 @app.get("/api/images/{job}")
-def image(job: str):
-    with GUARD:
-        result = JOBS.get(job, {}).copy()
-    if result.get("state") != "done" or not result.get("path"):
+def image(job: str, request: Request):
+    result = storage.job(job, request.state.user["id"])
+    if not result or result["state"] != "done" or not result["filename"]:
         raise HTTPException(404, "Ảnh chưa sẵn sàng.")
-    path = Path(result["path"])
-    if not path.is_file():
-        raise HTTPException(404, "File ảnh đã được di chuyển hoặc xóa.")
-    return FileResponse(path, media_type="image/png", filename=path.name)
+    return library_image(result["filename"], request)
+
+
+def import_old_images():
+    with GUARD:
+        if not ACTIVE:
+            storage.import_legacy(ROOT / "outputs")
 
 
 @app.get("/api/library")
-def library():
-    outputs = ROOT / "outputs"
-    images = sorted(outputs.glob("*.png"), key=lambda path: path.stat().st_mtime, reverse=True)
-    items = []
-    for path in images:
-        metadata = {}
-        try:
-            sidecar = path.with_suffix(".json")
-            if sidecar.is_file() and sidecar.stat().st_size < 1024 * 1024:
-                metadata = json.loads(sidecar.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            pass
-        if not isinstance(metadata, dict):
-            metadata = {}
-        items.append({"filename": path.name, "prompt": str(metadata.get("prompt", "")),
-                      "width": metadata.get("width"), "height": metadata.get("height"),
-                      "created": path.stat().st_mtime,
-                      "creative": metadata.get("creative"),
-                      "parameters": {key: metadata[key] for key in ["negative", "seed", "steps", "guidance", "width", "height"] if key in metadata}})
-    return {"images": items}
+def library(request: Request):
+    import_old_images()
+    return {"images": storage.library(request.state.user["id"])}
 
 
 @app.get("/api/library/{filename}")
-def library_image(filename: str):
-    outputs = (ROOT / "outputs").resolve()
-    path = (outputs / filename).resolve()
-    if Path(filename).name != filename or not path.is_relative_to(outputs) or path.suffix.lower() != ".png" or not path.is_file():
+def library_image(filename: str, request: Request):
+    import_old_images()
+    record = storage.image(filename, request.state.user["id"])
+    if not record:
         raise HTTPException(404, "Không tìm thấy ảnh trong thư viện.")
-    return FileResponse(path, media_type="image/png", filename=path.name)
+    return Response(record["png"], media_type="image/png", headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(filename)})
 
 
 def main():
