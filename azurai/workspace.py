@@ -73,3 +73,21 @@ def preferences(user_id, value=None):
             db.commit()
         row = db.execute("SELECT value FROM preferences WHERE user_id = ?", (user_id,)).fetchone()
     return json.loads(row[0]) if row else None
+
+
+def director_draft(user_id, brief=None, expected_version=None):
+    """One persisted working brief per account, with optimistic concurrency."""
+    with connection() as db:
+        db.execute("CREATE TABLE IF NOT EXISTS director_drafts (user_id INTEGER PRIMARY KEY, version INTEGER NOT NULL, value TEXT NOT NULL)")
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT version, value FROM director_drafts WHERE user_id = ?", (user_id,)).fetchone()
+        version = row["version"] if row else 0
+        if brief is not None:
+            if expected_version != version:
+                raise ValueError("Brief đã thay đổi ở cửa sổ khác. Tải lại brief trước khi lưu.")
+            version += 1
+            db.execute("INSERT OR REPLACE INTO director_drafts VALUES (?, ?, ?)",
+                       (user_id, version, json.dumps(brief, ensure_ascii=False)))
+            db.commit()
+            return {"version": version, "brief": brief}
+    return {"version": version, "brief": json.loads(row["value"]) if row else None}

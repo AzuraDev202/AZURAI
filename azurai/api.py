@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from safetensors import SafetensorError
 
-from . import auth, workspace
+from . import auth, workspace, director
 from .backend import (
     AUTO,
     MEMORY_MODES,
@@ -30,6 +30,7 @@ SERVICE = InferenceService()
 DEFAULT_OFFLINE = False
 JOBS = {}
 GUARD = threading.Lock()
+DIRECTOR_GUARD = threading.Lock()
 ACTIVE = None
 SIZE_PRESETS = {
     "Nhẹ": {"square": (384, 384), "landscape": (512, 384), "portrait": (384, 512),
@@ -52,6 +53,20 @@ class Settings(BaseModel):
 class Generation(Settings):
     prompt: str = Field(min_length=1, max_length=4000)
     negative: str = Field(default="", max_length=4000)
+    width: int = Field(default=512, ge=256, le=1024, multiple_of=64)
+    height: int = Field(default=512, ge=256, le=1024, multiple_of=64)
+    steps: int = Field(default=20, ge=1, le=50)
+    guidance: float = Field(default=7, ge=1, le=15)
+    seed: int = Field(default=-1, ge=-1, le=2147483647)
+
+
+class DirectorDraft(BaseModel):
+    brief: director.Brief
+    version: int = Field(default=0, ge=0)
+
+
+class DirectorGeneration(Settings):
+    version: int = Field(ge=1)
     width: int = Field(default=512, ge=256, le=1024, multiple_of=64)
     height: int = Field(default=512, ge=256, le=1024, multiple_of=64)
     steps: int = Field(default=20, ge=1, le=50)
@@ -166,6 +181,65 @@ def dashboard_stylesheet():
     return FileResponse(FRONTEND_DIR / "assets" / "css" / "dashboard.css", media_type="text/css")
 
 
+@app.get("/director.js")
+def director_javascript():
+    return FileResponse(FRONTEND_DIR / "assets" / "js" / "director.js", media_type="text/javascript")
+
+
+@app.get("/director.css")
+def director_stylesheet():
+    return FileResponse(FRONTEND_DIR / "assets" / "css" / "director.css", media_type="text/css")
+
+
+@app.get("/api/director/config")
+def director_configuration():
+    return director.configuration()
+
+
+@app.post("/api/director/concepts")
+def director_concepts(data: director.Idea):
+    with GUARD:
+        if ACTIVE or not DIRECTOR_GUARD.acquire(blocking=False):
+            raise HTTPException(409, "AZURAI đang xử lý một yêu cầu. Hãy chờ hoàn tất.")
+    try:
+        return director.develop(data)
+    except director.DirectorError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        DIRECTOR_GUARD.release()
+
+
+@app.get("/api/director/draft")
+def director_draft(request: Request):
+    return workspace.director_draft(request.state.user["id"])
+
+
+@app.put("/api/director/draft")
+def save_director_draft(data: DirectorDraft, request: Request):
+    try:
+        saved = workspace.director_draft(request.state.user["id"], data.brief.model_dump(), data.version)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {**saved, **director.compile_prompt(data.brief)}
+
+
+@app.post("/api/director/compile")
+def compile_director_brief(data: director.Brief):
+    return director.compile_prompt(data)
+
+
+@app.post("/api/director/generate", status_code=202)
+def director_generate(data: DirectorGeneration, request: Request):
+    saved = workspace.director_draft(request.state.user["id"])
+    if not saved["brief"]:
+        raise HTTPException(400, "Hãy chọn và lưu brief trước khi tạo ảnh.")
+    if saved["version"] != data.version:
+        raise HTTPException(409, "Brief đã thay đổi. Tải lại brief trước khi tạo ảnh.")
+    compiled = director.compile_prompt(director.Brief.model_validate(saved["brief"]))
+    generation = Generation(**data.model_dump(exclude={"version"}), prompt=compiled["prompt"], negative=compiled["negative"])
+    return start_job("generate", generation, creative=saved)
+
+
 @app.get("/api/options")
 def options():
     return {"models": [{"id": AUTO, "name": AUTO}] + [
@@ -251,7 +325,7 @@ def device(selection: str = AUTO, mode: str = AUTO, precision: str = AUTO, offli
             "report": report.replace("**", "").replace("`", ""), "suggested_size": suggested_size}
 
 
-def worker(job, operation, data):
+def worker(job, operation, data, creative=None):
     global ACTIVE
 
     def progress(value, message):
@@ -261,6 +335,11 @@ def worker(job, operation, data):
     try:
         if operation == "generate":
             image, _, message = SERVICE.generate(**data.model_dump(), progress=progress)
+            if creative and image:
+                sidecar = Path(image).with_suffix(".json")
+                metadata = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.is_file() else {}
+                metadata["creative"] = creative
+                sidecar.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         elif operation == "prepare":
             message = SERVICE.prepare(**data.model_dump(), progress=progress)
             image = None
@@ -283,12 +362,12 @@ def worker(job, operation, data):
             ACTIVE = None
 
 
-def start_job(operation, data):
+def start_job(operation, data, creative=None):
     global ACTIVE
     if data.selection not in [AUTO, *[entry["id"] for entry in SERVICE.models()]]:
         raise HTTPException(400, "Mô hình không còn trong danh sách. Bấm Kiểm tra lại.")
     with GUARD:
-        if ACTIVE:
+        if ACTIVE or DIRECTOR_GUARD.locked():
             raise HTTPException(409, "AZURAI đang xử lý một yêu cầu. Hãy chờ hoàn tất.")
         for key in list(JOBS):
             if time.time() - JOBS[key]["created"] > 86400:
@@ -300,7 +379,7 @@ def start_job(operation, data):
         JOBS[job] = {"state": "running", "progress": 0, "message": "Đang chuẩn bị mô hình…",
                      "created": time.time(), "operation": operation}
     try:
-        threading.Thread(target=worker, args=(job, operation, data), daemon=True).start()
+        threading.Thread(target=worker, args=(job, operation, data, creative), daemon=True).start()
     except RuntimeError:
         with GUARD:
             ACTIVE = None
@@ -368,6 +447,7 @@ def library():
         items.append({"filename": path.name, "prompt": str(metadata.get("prompt", "")),
                       "width": metadata.get("width"), "height": metadata.get("height"),
                       "created": path.stat().st_mtime,
+                      "creative": metadata.get("creative"),
                       "parameters": {key: metadata[key] for key in ["negative", "seed", "steps", "guidance", "width", "height"] if key in metadata}})
     return {"images": items}
 

@@ -6,6 +6,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M2 36L18 3h6L38 36h-9L21 15 11 36Z' fill='%2300cfff'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/studio.css"><script src="/studio.js" defer></script>
   <script src="/workspace.js" defer></script>
+  <script src="/director.js" defer></script><link rel="stylesheet" href="/director.css">
   <link rel="stylesheet" href="/dashboard.css">
 </head>
 <body>
@@ -91,6 +92,23 @@
       <section class="card controls">
         <h2 class="section-title"><svg class="icon"><use href="#i-file"/></svg>Ý tưởng của bạn</h2>
         <p class="subtitle">Mô tả chi tiết ý tưởng để tạo ra hình ảnh như mong muốn.</p>
+        <label class="director-toggle"><input id="directorMode" type="checkbox"> ✨ Creative Director</label>
+        <section id="directorPanel" class="director-panel" hidden aria-labelledby="directorHeading">
+          <h3 id="directorHeading">Từ ý tưởng đến hướng sáng tạo</h3>
+          <p id="directorProvider" class="help">Đang kiểm tra Creative Director…</p>
+          <label for="directorIdea">Ý tưởng của bạn</label>
+          <textarea id="directorIdea" rows="3" maxlength="1500" placeholder="Một người đàn ông thất bại nhưng vẫn tiếp tục cố gắng…"></textarea>
+          <div class="director-toolbar"><button id="directorDevelop" type="button" class="chip">✨ Đề xuất 3 concept</button><button id="directorReload" type="button" class="chip">Mở lại brief đã lưu</button></div>
+          <div id="directorConcepts" class="director-concepts"></div>
+          <div id="directorEditor" hidden>
+            <h3 id="directorTitle"></h3>
+            <p class="help">Các trường hình ảnh nên viết bằng tiếng Anh để phù hợp với model hiện tại. Prompt bên dưới tự cập nhật từ brief.</p>
+            <div id="directorFields" class="director-fields"></div>
+            <button id="directorSave" class="chip" type="button">Lưu brief</button>
+          </div>
+          <p id="directorMessage" class="director-message" role="status" aria-live="polite"></p>
+          <p id="directorWarning" class="director-warning"></p>
+        </section>
         <form id="form">
           <div class="prompt-wrap"><label for="prompt" class="sr-only">Mô tả ảnh</label><textarea id="prompt" required maxlength="4000" placeholder="A breathtaking landscape of Mount Fuji at sunrise, golden sunlight, a tranquil lake, cherry blossom trees, cinematic photography…"></textarea><span class="counter" id="promptCount">0/4000</span></div>
           <div class="field-title quick-title"><svg class="icon"><use href="#i-light"/></svg>Gợi ý nhanh</div>
@@ -138,6 +156,15 @@
           <img id="result" alt="Ảnh được tạo bởi AZURAI" hidden>
         </div>
         <div class="canvas-foot"><div class="image-meta"><svg class="icon"><use href="#i-image"/></svg><span id="size">512 × 512</span></div><a id="download" class="download" hidden><svg class="icon"><use href="#i-download"/></svg>Tải ảnh PNG</a></div>
+        <div id="directorActions" class="director-actions" hidden role="group" aria-label="Tiếp tục sáng tạo">
+          <button type="button" class="chip" data-director-action="variation">🎲 Biến thể mới</button>
+          <button type="button" class="chip" data-director-action="style">🎨 Đổi phong cách</button>
+          <button type="button" class="chip" data-director-action="shot">📷 Đổi camera</button>
+          <button type="button" class="chip" data-director-action="lighting">💡 Đổi ánh sáng</button>
+          <button type="button" class="chip" data-director-action="scene">🌎 Đổi bối cảnh</button>
+          <button type="button" class="chip" data-director-action="concept">✨ Concept khác</button>
+          <p class="help">Text2Img tạo ảnh mới từ brief; thay đổi bối cảnh không bảo đảm giữ nguyên danh tính nhân vật.</p>
+        </div>
         <span id="resultInfo" class="sr-only">Ảnh kết quả sẽ xuất hiện tại đây.</span>
       </section>
     </div>

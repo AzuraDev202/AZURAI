@@ -155,3 +155,44 @@ python scripts/package.py --include-cache --output AZURAI-offline.zip
 
 
 Tham khảo: [Diffusers single-file loading](https://huggingface.co/docs/diffusers/v0.36.0/en/api/loaders/single_file), [FastAPI](https://fastapi.tiangolo.com/).
+
+## Creative Director V1
+
+Bật **✨ Creative Director** trong Studio để đi từ ý tưởng → 3 concept → brief có thể sửa → prompt → Text2Img. Chọn concept, chỉnh chủ thể/bối cảnh/camera/ánh sáng/phong cách và bấm **Tạo hình ảnh**. Prompt được biên dịch trên máy chủ từ brief đã lưu; chế độ nhập prompt trực tiếp vẫn hoạt động khi tắt Creative Director.
+
+### Bật LLM cục bộ (Ollama)
+
+Cài và chạy [Ollama](https://ollama.com/), tải một model có khả năng hiểu tiếng Việt và xuất JSON có cấu trúc. Ví dụ với model đã cài `qwen2.5:3b`, chạy trong PowerShell tại thư mục AZURAI:
+
+```powershell
+$env:AZURAI_DIRECTOR_MODEL = "qwen2.5:3b"
+$env:AZURAI_DIRECTOR_URL = "http://127.0.0.1:11434"
+.\run.ps1
+```
+
+Tên model phải khớp với `ollama list`. `AZURAI_DIRECTOR_URL` là tùy chọn, mặc định là địa chỉ trên; chỉ hỗ trợ Ollama HTTP trên localhost. Không cần API key. Cấu hình được đọc từ biến môi trường phía máy chủ, không từ trình duyệt. Gỡ biến model để quay về gợi ý mẫu:
+
+```powershell
+Remove-Item Env:AZURAI_DIRECTOR_MODEL -ErrorAction SilentlyContinue
+.\run.ps1
+```
+
+Khi không cấu hình LLM, UI ghi rõ **Gợi ý mẫu**: các hướng sáng tạo được dựng từ preset, giữ nguyên câu nhập làm chủ thể và chưa tự hiểu/dịch ý tưởng tiếng Việt. Khi đã cấu hình LLM nhưng Ollama mất kết nối hoặc trả JSON sai, AZURAI báo lỗi để thử lại. Không âm thầm chuyển sang mẫu.
+
+LLM tạo ba brief khác nhau, dùng tiêu đề tiếng Việt và trường hình ảnh tiếng Anh. Dữ liệu được kiểm tra bằng Pydantic trước khi hiển thị. API Ollama dùng [structured output](https://docs.ollama.com/api/chat) và `keep_alive: 0` để yêu cầu giải phóng model sau khi trả lời. Yêu cầu phát triển concept và job ảnh được chạy lần lượt để hạn chế tranh VRAM. Chất lượng hiểu ý tưởng phụ thuộc LLM đã chọn; cần kiểm tra concept trước khi tạo ảnh.
+
+### Lưu và phát triển tiếp
+
+- Mỗi tài khoản có một brief nháp lưu trong SQLite, phục hồi qua **Mở lại brief đã lưu**. Bản nháp có phiên bản; sửa đồng thời ở tab khác sẽ báo xung đột thay vì ghi đè.
+- Mỗi ảnh từ Director lưu snapshot `creative: {version, brief}` trong JSON cạnh ảnh. Mở ảnh từ thư viện và dùng lại để chỉnh tiếp. Thư viện ảnh vẫn dùng chung trên máy như phiên bản trước, bao gồm brief đính kèm; brief nháp riêng theo tài khoản.
+- **Biến thể mới** giữ brief và đặt seed `-1`; đổi camera/style/ánh sáng/bối cảnh mở đúng trường brief để bạn sửa trước khi tạo lại.
+- Text2Img tạo ảnh mới, chưa có image-to-image hay cơ chế khóa danh tính nhân vật. Chưa có bước tự chấm điểm ảnh bằng vision model.
+- Prompt ưu tiên chủ thể/hành động/bối cảnh. SD1.5 có ngữ cảnh CLIP ngắn; UI nhắc rút gọn khi prompt dài. Tỷ lệ ảnh tuân theo preset kích thước hiện có (xấp xỉ 16:9 và 9:16 do bội số 64).
+
+API có xác thực: `POST /api/director/concepts`, `POST /api/director/compile`, `GET/PUT /api/director/draft`, `POST /api/director/generate`, `GET /api/director/config`. Generate nhận phiên bản brief và thông số inference; không nhận prompt từ trình duyệt.
+
+Kiểm thử (không tải checkpoint):
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```

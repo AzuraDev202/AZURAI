@@ -98,6 +98,7 @@ function setBusy(value, operation = "generate") {
     .forEach((element) => { element.disabled = value; });
   $("buttonText").textContent = value
     ? (operation === "generate" ? "Đang sáng tạo…" : "Đang chuẩn bị…") : "Tạo hình ảnh";
+  if (typeof Director !== "undefined") Director.syncBusy();
 }
 
 async function monitor(id) {
@@ -139,20 +140,26 @@ async function monitor(id) {
 
 async function run(operation, resumeId = null) {
   if (!currentUser) { pendingView = "create"; openAuth(); return; }
-  if (busy) return;
+  if (busy || (typeof Director !== "undefined" && Director.working)) return;
   setBusy(true, operation);
   $("progress").hidden = false;
   $("bar").style.width = "0%";
   try {
     let id = resumeId;
     if (!id) {
+      if (operation === "generate" && Director.mode) await Director.save();
       const data = settings();
       if (operation === "generate") Object.assign(data, {
         prompt: $("prompt").value, negative: $("negative").value,
         width: Number($("width").value), height: Number($("height").value),
         steps: Number($("steps").value), guidance: Number($("guidance").value), seed: Number($("seed").value),
       });
-      const job = await api(`/api/${operation}`, {method: "POST", headers: {"Content-Type": "application/json"},
+      let endpoint = `/api/${operation}`;
+      if (operation === "generate" && Director.mode) {
+        endpoint = "/api/director/generate";
+        delete data.prompt; delete data.negative; data.version = Director.version;
+      }
+      const job = await api(endpoint, {method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify(data)});
       id = job.id;
       localStorage.setItem("azuraiJob", JSON.stringify({id, operation}));
@@ -170,6 +177,7 @@ async function run(operation, resumeId = null) {
 
 document.querySelectorAll("[data-example]").forEach((button) => {
   button.onclick = () => {
+    Director.setMode(false);
     $("prompt").value = examples[button.dataset.example]; updatePromptCount(); $("prompt").focus();
     document.querySelectorAll("[data-example]").forEach(item => item.classList.toggle("selected", item === button));
   };
@@ -216,6 +224,7 @@ function showLibraryImage(item) {
   $("download").href = url;
   $("download").hidden = false;
   $("resultInfo").textContent = item.prompt || item.filename;
+  if (item.creative) Director.restoreCreative(item.creative);
   localStorage.setItem("azuraiPreview", JSON.stringify(item));
   if ($("libraryDialog").open) $("libraryDialog").close();
 }
@@ -335,6 +344,7 @@ function updateAccount(user) {
   $("deviceBadge").hidden = !user;
   $("homeGreeting").textContent = user ? `Chào ${user.username}, hôm nay bạn muốn tạo gì?` : "Đăng nhập để mở Studio.";
   if (!user) {
+    if (typeof Director !== "undefined") Director.reset();
     $("homeStats").hidden = true;
     if (typeof clearWorkspace === "function") clearWorkspace();
     studioReady = false;
@@ -391,6 +401,7 @@ async function initializeStudio() {
     await loadOptions(true);
     await restorePreferences();
     await loadProjects();
+    await Director.load();
     if (!currentUser) return;
     studioReady = true;
     updatePromptCount();
@@ -455,7 +466,7 @@ window.addEventListener("hashchange", () => {
   if (view !== "home" && !currentUser) { pendingView = view; openAuth(); }
   showView(view);
 });
-(async () => {
+window.addEventListener("DOMContentLoaded", async () => {
   const requested = ["#create", "#projects", "#features", "#library", "#settings"].includes(location.hash) ? location.hash.slice(1) : "home";
   try {
     const data = await api("/api/auth/session"); updateAccount(data.user);
@@ -463,4 +474,4 @@ window.addEventListener("hashchange", () => {
     if (currentUser) await initializeStudio();
     else if (requested !== "home") { pendingView = requested; openAuth(); }
   } catch (error) { $("homeGreeting").textContent = error.message; }
-})();
+});
