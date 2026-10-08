@@ -81,7 +81,7 @@
             <details class="advanced" id="setup">
               <summary>Máy xử lý &amp; chuẩn bị mô hình</summary><div id="modelReport" class="help report" aria-live="polite">Đang kiểm tra…</div>
               <div class="examples"><button id="refresh" class="chip" type="button">Kiểm tra lại</button><button id="prepare" class="chip" type="button">Chuẩn bị</button><button id="checkpoint" class="chip" type="button">Tải mô hình</button></div>
-              <p class="help">Mô hình nằm trong models/text2img. Chọn Stable Diffusion 1.5 và tắt offline để tải checkpoint (~4 GB) hoặc các thành phần còn thiếu.</p>
+              <p class="help">Mô hình nằm trong models/text2img. Chọn SD1.5 hoặc FLUX.2 Klein Base 4B, tắt offline và bấm Tải checkpoint. Klein tải cả bộ model nhiều GB; sau đó bấm Chuẩn bị mô hình.</p>
             </details></div></section><section class="card settings-panel"><h2>Mặc định tạo ảnh</h2><p class="help">Lưu mô hình, kích thước, số bước, CFG, seed và chi tiết muốn tránh từ Studio cho lần đăng nhập sau.</p><p id="defaultsSummary" class="help"></p><button id="saveDefaults" class="primary compact">Lưu cấu hình hiện tại</button><button id="resetDefaults" class="chip">Khôi phục mặc định</button><p id="settingsStatus" class="status" role="status"></p><h2>Tài khoản</h2><p id="settingsAccount" class="help"></p><button id="settingsAccountButton" class="chip">Quản lý tài khoản</button></section></div>
     </section>
     <section id="featuresView" hidden aria-labelledby="featuresTitle">
@@ -189,3 +189,4 @@
   <dialog id="imageDialog" aria-labelledby="imageDialogTitle"><div class="dialog-head"><h2 id="imageDialogTitle">Chi tiết tác phẩm</h2><button class="icon-button" data-close="imageDialog" aria-label="Đóng"><svg class="icon"><use href="#i-close"/></svg></button></div><img id="detailImage" class="detail-image" alt="Tác phẩm đã lưu"><p id="detailPrompt"></p><p id="detailMeta" class="help"></p><div class="page-toolbar"><a id="detailDownload" class="download">Tải PNG</a><button id="reuseImage" class="chip">Dùng lại mô tả</button></div><label for="imageProject">Thêm vào dự án</label><div class="page-toolbar"><select id="imageProject"></select><button id="addImageProject" class="chip">Thêm ảnh</button></div><button id="removeImageProject" class="chip" hidden>Gỡ ảnh khỏi dự án</button><p id="detailStatus" role="status" class="status"></p></dialog>
 </body>
 </html>
+

@@ -12,3 +12,5 @@ data/
 .env.*
 !.env.example
 *.dump
+
+models/text2img/flux2-klein-base-4b/

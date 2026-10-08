@@ -25,11 +25,12 @@ from safetensors import SafetensorError, safe_open
 from transformers import CLIPImageProcessor
 
 from .paths import CONFIG_DIR, ROOT
+from . import flux
 
 CACHE = ROOT / ".cache" / "huggingface"
 AUTO = "Tự động"
 MEMORY_MODES = [AUTO, "Tiết kiệm VRAM", "Offload theo mô-đun", "CPU"]
-PRECISIONS = [AUTO, "FP32", "FP16"]
+PRECISIONS = [AUTO, "FP32", "FP16", "BF16"]
 REQUIRED = ["model_index.json", "unet/config.json", "vae/config.json", "text_encoder/config.json",
             "scheduler/scheduler_config.json", "tokenizer/vocab.json", "tokenizer/merges.txt",
             "tokenizer/tokenizer_config.json", "tokenizer/special_tokens_map.json",
@@ -48,16 +49,20 @@ def hardware():
     return info
 
 
-def memory_policy(info, mode=AUTO, precision=AUTO):
+def memory_policy(info, mode=AUTO, precision=AUTO, backend="sd15"):
     if mode not in MEMORY_MODES or precision not in PRECISIONS:
         raise ValueError("Chế độ bộ nhớ hoặc precision không hợp lệ.")
     cpu = not info["cuda"] or mode == "CPU"
     # Conservative numerical fallback for Turing, based on the observed NaNs.
     dtype = "FP32" if cpu or info.get("capability") == [7, 5] else "FP16"
+    if backend == "flux2-klein" and not cpu:
+        dtype = "BF16" if info.get("capability", [0])[0] >= 8 else "FP32"
     if precision != AUTO and not cpu:
+        if precision == "BF16" and info.get("capability", [0])[0] < 8:
+            raise ValueError("BF16 cần GPU CUDA hỗ trợ, thông thường compute capability từ 8.0. Chọn FP32 hoặc Tự động.")
         dtype = precision
     if mode == AUTO:
-        threshold = 8 if dtype == "FP32" else 6
+        threshold = (20 if dtype == "FP32" else 12) if backend == "flux2-klein" else (8 if dtype == "FP32" else 6)
         mode = "CPU" if cpu else (
             "Offload theo mô-đun" if info["vram_free_gb"] >= threshold else "Tiết kiệm VRAM")
     elif cpu:
@@ -71,6 +76,8 @@ def memory_policy(info, mode=AUTO, precision=AUTO):
         " (mặc định thận trọng trên compute capability 7.5 để tránh lỗi FP16 đã gặp)."
         if precision == AUTO and not cpu and info.get("capability") == [7, 5] else "."))
     size = 384 if info["ram_free_gb"] < 2 or (not cpu and info["vram_free_gb"] < 2) else 512
+    if backend == "flux2-klein" and info["ram_free_gb"] >= 16 and not cpu:
+        size = 1024
     reasons.append(f"Gợi ý {size}×{size}; đây là ước lượng, bộ nhớ còn phụ thuộc prompt, steps và tiến trình khác.")
     return {"mode": mode, "precision": dtype, "size": size, "reason": " ".join(reasons)}
 
@@ -122,6 +129,8 @@ class InferenceService:
             candidates.insert(0, self.override_model)
         for path in candidates:
             path = path.resolve()
+            if any(flux.is_flux(e) and path.is_relative_to(e["path"]) for e in registry):
+                continue
             if path not in known:
                 registry.append({"id": str(path), "name": path.name, "path": path,
                                  "config": self.override_config or (registry[0]["config"] if registry else
@@ -129,6 +138,8 @@ class InferenceService:
                 known.add(path)
         if self.override_config:
             for entry in registry:
+                if flux.is_flux(entry):
+                    continue
                 entry["config"] = self.override_config
                 entry.pop("revision", None)
         if self.override_model:
@@ -146,6 +157,13 @@ class InferenceService:
                                    local_files_only=offline, revision=entry.get("revision", "main")))
 
     def assets(self, entry):
+        if flux.is_flux(entry):
+            checker_entry = flux.safety_entry(entry)
+            missing = flux.missing_files(entry)
+            missing += [name for name in flux.SAFETY_FILES if not self._has_asset(checker_entry, name)]
+            if not any(self._has_asset(checker_entry, name) for name in flux.SAFETY_WEIGHTS):
+                missing.append("safety_checker weights")
+            return missing
         missing = []
         for filename in REQUIRED:
             try:
@@ -169,34 +187,35 @@ class InferenceService:
             chosen = next((item for item in entries if item["id"] == selection), None)
             if chosen is None:
                 raise ValueError("Mô hình không còn trong danh sách; hãy kiểm tra lại.")
-            validate_checkpoint(chosen["path"])
+            flux.validate(chosen) if flux.is_flux(chosen) else validate_checkpoint(chosen["path"])
             return chosen, "Bạn chọn mô hình thủ công."
         valid = []
         for entry in entries:
             try:
-                validate_checkpoint(entry["path"])
+                flux.validate(entry) if flux.is_flux(entry) else validate_checkpoint(entry["path"])
                 valid.append(entry)
             except (ValueError, OSError, SafetensorError):
                 continue
         if not valid:
-            raise ValueError("Chưa có checkpoint SD1.5 hợp lệ. Chọn mô hình bên dưới để xem vị trí và tải file.")
+            raise ValueError("Chưa có model hợp lệ (SD1.5 hoặc FLUX.2 Klein). Chọn mô hình bên dưới để xem vị trí và tải file.")
         ready = [entry for entry in valid if not self.assets(entry)]
         if offline and not ready:
             missing = ", ".join(self.assets(valid[0]))
             raise ValueError(f"Chưa đủ thành phần offline cho {valid[0].get('name', valid[0]['id'])}. Thiếu: {missing}. "
                              "Tắt offline và bấm Chuẩn bị mô hình trước.")
         return (ready or valid)[0], (
-            f"Chọn SD1.5 hợp lệ đã có trên máy xử lý ({len(valid)} checkpoint hỗ trợ); "
-            "ưu tiên bộ thành phần đã sẵn sàng. Các checkpoint SD1.5 dùng cùng kiến trúc; "
-            "tiết kiệm bộ nhớ bằng offload và độ phân giải, không suy đoán từ dung lượng file.")
+            f"Chọn model đã có trên máy xử lý ({len(valid)} model hỗ trợ); ưu tiên bộ thành phần đã sẵn sàng.")
 
     def inspect(self, selection=AUTO, mode=AUTO, precision=AUTO, offline=False):
         info = hardware()
-        policy = memory_policy(info, mode, precision)
+        requested = next((e for e in self.models() if e["id"] == selection), {})
+        policy = memory_policy(info, mode, precision, requested.get("backend", "sd15"))
         lines = [f"**Máy xử lý ảnh:** {info['device']} (máy chạy Python, không phải máy mở trình duyệt).",
                  policy["reason"]]
         try:
             entry, reason = self.select(selection, offline)
+            policy = memory_policy(info, mode, precision, entry.get("backend", "sd15"))
+            lines[1] = policy["reason"]
             missing = self.assets(entry)
             lines += [f"**Mô hình đã chọn:** {entry['name']}. {reason}", f"Vị trí checkpoint: `{entry['path']}`",
                       "**Offline:** " + ("Sẵn sàng về file; bấm Chuẩn bị mô hình để kiểm tra nạp thực tế."
@@ -217,6 +236,17 @@ class InferenceService:
 
     def fingerprint(self, entry, progress):
         path = entry["path"]
+        if flux.is_flux(entry):
+            flux.validate(entry)
+            hashes = {}
+            for name in flux.FILES:
+                component = path / name
+                stat = component.stat()
+                key = (str(component), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+                if key not in self.hashes:
+                    self.hashes[key] = file_hash(component, progress)
+                hashes[name] = self.hashes[key]
+            return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
         stat = path.stat()
         key = (str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
         if key not in self.hashes:
@@ -227,6 +257,8 @@ class InferenceService:
         return self.hashes[key]
 
     def load(self, entry, policy, offline, progress):
+        if flux.is_flux(entry):
+            return self.load_flux(entry, policy, offline, progress)
         digest = self.fingerprint(entry, progress)
         key = (digest, entry["config"], entry.get("revision", "main"), policy["mode"], policy["precision"])
         if self.pipe is not None and self.active == key:
@@ -239,7 +271,7 @@ class InferenceService:
             self.asset_path(entry, filename, offline)
         # Pin all subsequent loads to the same resolved snapshot.
         config_path = self.asset_path(entry, "model_index.json", offline).parent
-        dtype = torch.float32 if policy["precision"] == "FP32" else torch.float16
+        dtype = {"FP32": torch.float32, "FP16": torch.float16, "BF16": torch.bfloat16}[policy["precision"]]
         progress(0.1, "Đang kiểm tra/tải bộ lọc an toàn…")
         if not any(self._has_asset(entry, name) for name in [
                 "safety_checker/model.safetensors", "safety_checker/pytorch_model.bin"]):
@@ -266,10 +298,45 @@ class InferenceService:
         self.pipe, self.active = pipe, key
         return pipe, digest
 
+    def load_flux(self, entry, policy, offline, progress):
+        from diffusers import Flux2KleinPipeline
+        digest = self.fingerprint(entry, progress)
+        key = ("flux2-klein", digest, policy["mode"], policy["precision"])
+        if self.pipe is not None and self.active == key:
+            return self.pipe, digest
+        self.unload()
+        dtype = {"FP32": torch.float32, "FP16": torch.float16, "BF16": torch.bfloat16}[policy["precision"]]
+        if offline and self.assets(entry):
+            raise ValueError("Thiếu thành phần offline. Tắt offline và bấm Chuẩn bị mô hình.")
+        checker_entry = flux.safety_entry(entry)
+        for name in flux.SAFETY_FILES:
+            self.asset_path(checker_entry, name, offline)
+        if not any(self._has_asset(checker_entry, name) for name in flux.SAFETY_WEIGHTS):
+            self.asset_path(checker_entry, flux.SAFETY_WEIGHTS[0], offline)
+        safety_root = self.asset_path(checker_entry, flux.SAFETY_FILES[0]).parent.parent
+        checker = StableDiffusionSafetyChecker.from_pretrained(str(safety_root), subfolder="safety_checker",
+                                                              dtype=torch.float32, local_files_only=True)
+        extractor = CLIPImageProcessor.from_pretrained(str(safety_root), subfolder="feature_extractor", local_files_only=True)
+        progress(0.3, "Đang nạp FLUX.2 Klein Base 4B…")
+        pipe = Flux2KleinPipeline.from_pretrained(str(entry["path"]), torch_dtype=dtype, local_files_only=True)
+        pipe.vae.enable_slicing()
+        pipe.vae.enable_tiling()
+        if policy["mode"] == "CPU":
+            pipe.to("cpu")
+        elif policy["mode"] == "Tiết kiệm VRAM":
+            pipe.enable_sequential_cpu_offload(gpu_id=0)
+        else:
+            pipe.enable_model_cpu_offload(gpu_id=0)
+        # The standalone output checker stays on CPU and is released with the pipeline.
+        pipe.azurai_safety_checker = checker
+        pipe.azurai_feature_extractor = extractor
+        self.pipe, self.active = pipe, key
+        return pipe, digest
+
     def prepare(self, selection, mode, precision, offline, progress):
         with self.lock:
             entry, _ = self.select(selection, offline)
-            policy = memory_policy(hardware(), mode, precision)
+            policy = memory_policy(hardware(), mode, precision, entry.get("backend", "sd15"))
             self.load(entry, policy, offline, progress)
             progress(1, "Mô hình đã sẵn sàng.")
             return f"Đã nạp {entry['name']}; {policy['mode']}, {policy['precision']}. Có thể tạo ảnh offline."
@@ -279,6 +346,8 @@ class InferenceService:
             raise ValueError("Đang bật offline. Tắt offline để tải checkpoint.")
         with self.lock:
             entry = next((e for e in self.models() if e["id"] == selection), None)
+            if entry and flux.is_flux(entry):
+                return flux.download(entry, progress)
             if not entry or not entry.get("download_url"):
                 raise ValueError("Chọn SD1.5 chính thức để tải, hoặc đặt checkpoint thủ công tại vị trí hướng dẫn.")
             target = entry["path"]
@@ -326,7 +395,7 @@ class InferenceService:
             started = time.perf_counter()
             entry, selection_reason = self.select(selection, offline)
             info = hardware()
-            policy = memory_policy(info, mode, precision)
+            policy = memory_policy(info, mode, precision, entry.get("backend", "sd15"))
             try:
                 pipe, digest = self.load(entry, policy, offline, progress)
 
@@ -335,10 +404,14 @@ class InferenceService:
                     return callback_kwargs
 
                 with torch.inference_mode():
-                    result = pipe(prompt=prompt.strip(), negative_prompt=negative.strip(), width=width,
-                                  height=height, num_inference_steps=steps, guidance_scale=float(guidance),
-                                  generator=torch.Generator(device="cpu").manual_seed(seed),
-                                  callback_on_step_end=on_step, output_type="np")
+                    arguments = dict(width=width, height=height, num_inference_steps=steps,
+                                     guidance_scale=float(guidance), generator=torch.Generator(device="cpu").manual_seed(seed),
+                                     callback_on_step_end=on_step, output_type="np")
+                    if flux.is_flux(entry):
+                        result = flux.run(pipe, pipe.azurai_safety_checker, pipe.azurai_feature_extractor,
+                                          prompt.strip(), negative.strip(), **arguments)
+                    else:
+                        result = pipe(prompt=prompt.strip(), negative_prompt=negative.strip(), **arguments)
                 if result.nsfw_content_detected and any(result.nsfw_content_detected):
                     raise ValueError("Bộ lọc an toàn đã chặn ảnh. Hãy điều chỉnh prompt.")
                 if not np.isfinite(result.images).all():
@@ -346,18 +419,23 @@ class InferenceService:
                 image = Image.fromarray((result.images[0] * 255).round().astype("uint8"))
                 versions = {name: importlib.metadata.version(name) for name in [
                     "torch", "diffusers", "transformers", "accelerate", "safetensors", "Pillow", "numpy"]}
-                config_path = self.asset_path(entry, "model_index.json").parent
-                asset_hashes = {name: file_hash(config_path / name) for name in REQUIRED}
-                safety = next(config_path / name for name in ["safety_checker/model.safetensors",
-                              "safety_checker/pytorch_model.bin"] if (config_path / name).is_file())
-                safety_key = (str(safety), safety.stat().st_size, safety.stat().st_mtime_ns)
-                if safety_key not in self.hashes:
-                    self.hashes[safety_key] = file_hash(safety)
-                asset_hashes[str(safety.relative_to(config_path))] = self.hashes[safety_key]
+                if flux.is_flux(entry):
+                    config_path = entry["path"]
+                    asset_hashes = {name: file_hash(config_path / name) for name in flux.FILES if not name.endswith(".safetensors")}
+                else:
+                    config_path = self.asset_path(entry, "model_index.json").parent
+                    asset_hashes = {name: file_hash(config_path / name) for name in REQUIRED}
+                    safety = next(config_path / name for name in ["safety_checker/model.safetensors",
+                                  "safety_checker/pytorch_model.bin"] if (config_path / name).is_file())
+                    safety_key = (str(safety), safety.stat().st_size, safety.stat().st_mtime_ns)
+                    if safety_key not in self.hashes:
+                        self.hashes[safety_key] = file_hash(safety)
+                    asset_hashes[str(safety.relative_to(config_path))] = self.hashes[safety_key]
                 parameters = {"schema_version": 2, "prompt": prompt.strip(), "negative_prompt": negative.strip(),
                               "width": width, "height": height, "steps": steps, "guidance": float(guidance),
                               "seed": seed, "model": entry["path"].name, "model_sha256": digest,
-                              "config": entry["config"], "config_revision": config_path.name,
+                              "config": entry["config"], "config_revision": entry.get("revision", config_path.name),
+                              "backend": entry.get("backend", "sd15"),
                               "asset_sha256": asset_hashes, "scheduler_class": type(pipe.scheduler).__name__,
                               "scheduler_config": dict(pipe.scheduler.config), "library_versions": versions,
                               "python_version": sys.version, "cuda_version": torch.version.cuda,
@@ -380,3 +458,4 @@ class InferenceService:
                 raise ValueError("Hết bộ nhớ trên máy xử lý. Giảm xuống 384×384 hoặc 256×256, chọn Tiết kiệm VRAM; "
                                  "đóng tiến trình khác hoặc chọn mô hình nhẹ hơn nếu có. Pipeline đã được giải phóng; "
                                  "bạn có thể thử lại mà không cần khởi động lại.") from exc
+

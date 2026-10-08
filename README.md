@@ -1,6 +1,6 @@
 # AZURAI — Creative Studio
 
-Ứng dụng tạo ảnh SD1.5 trên máy, với giao diện web, Creative Director dùng Ollama, tài khoản và dự án lưu trong PostgreSQL.
+Ứng dụng tạo ảnh SD1.5 hoặc FLUX.2 Klein Base 4B trên máy, với giao diện web, Creative Director dùng Ollama, tài khoản và dự án lưu trong PostgreSQL.
 
 ## Cài đặt và chạy
 
@@ -25,7 +25,7 @@ Máy hiện có thể dùng PostgreSQL portable: binary ở `.cache/postgresql/p
 ## Sử dụng
 
 - **Trang chủ:** lối tắt, số liệu và tác phẩm gần đây.
-- **Tính năng:** tìm kiếm nhóm mô hình; hiện hỗ trợ SD1.5 Text to Image, chưa hỗ trợ Text to Video.
+- **Tính năng:** tìm kiếm nhóm mô hình; hiện hỗ trợ SD1.5 và FLUX.2 Klein Text to Image, chưa hỗ trợ Text to Video.
 - **Studio:** nhập ý tưởng → chọn concept từ LLM → sửa brief → tạo ảnh. Mỗi lần tạo đều qua Creative Director; Ollama phải chạy và có model phù hợp.
 - **Thư viện:** prompt nổi bật theo tính năng, có tìm kiếm, sao chép và dùng prompt để tạo dự án.
 - **Dự án:** quản lý ảnh đã tạo, tải PNG và dùng lại thông số.
@@ -38,6 +38,23 @@ Máy hiện có thể dùng PostgreSQL portable: binary ở `.cache/postgresql/p
 ```
 
 Ứng dụng kiểm tra phần cứng **máy chạy Python**. GPU ít VRAM nên bắt đầu với 384×384 hoặc 512×512; hết bộ nhớ thì giảm kích thước và chọn chế độ tiết kiệm VRAM. CPU dùng FP32.
+
+
+## FLUX.2 Klein Base 4B
+
+Sau khi cập nhật code, chạy lại `setup.ps1` để cài Diffusers 0.37.1 và Transformers từ 4.57. Trong **Cài đặt → Mô hình**, chọn **FLUX.2 Klein Base 4B**, tắt offline, bấm **Tải checkpoint**, rồi **Chuẩn bị mô hình**. Trọn bộ transformer, VAE, Qwen3 text encoder và tokenizer được tải vào `models/text2img/flux2-klein-base-4b/`; không dùng bộ nạp checkpoint SD1.5. Không đưa trọng số model vào Git.
+
+Model gốc: [black-forest-labs/FLUX.2-klein-base-4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B), Apache 2.0. Phiên bản tải được cố định tại commit `a3b4f4849157f664bdbc776fd7453c2783562f4d`; chỉ tải bộ Diffusers, tránh tải trùng file checkpoint tổng. Cần nhiều GB đĩa và bộ nhớ: chọn model mới không khiến mọi máy đều chạy được. Bản này chưa tích hợp quantization hoặc train/nạp LoRA.
+
+Khi đổi sang Klein, Studio gợi ý **50 steps, guidance 4**; bạn vẫn có thể chỉnh. Bắt đầu ở 512×512 nếu cần tiết kiệm bộ nhớ, chọn preset cao hoặc tùy chỉnh 1024×1024 khi đủ tài nguyên. Klein dùng FlowMatch scheduler riêng. Nội dung “Chi tiết muốn tránh” được mã hóa thành negative embeddings khi guidance > 1; không truyền tham số `negative_prompt` của SD1.5 sang Klein.
+
+Chọn precision **Tự động**: Klein dùng BF16 trên CUDA compute capability từ 8.0, FP32 trên CPU/GPU cũ. BF16 thủ công bị từ chối trên CUDA không hỗ trợ; FP16 vẫn có thể chọn nhưng không phải mặc định Klein. CPU chạy được về mặt code nhưng có thể rất chậm và cần nhiều RAM. Chế độ offload vẫn dùng RAM máy xử lý.
+
+Klein không có bộ lọc đầu ra đi kèm pipeline. AZURAI nạp riêng bộ kiểm tra ảnh hiện có từ snapshot SD1.5 đã cố định, chạy trên CPU sau khi giải mã và chặn ảnh trước khi lưu. **Chuẩn bị mô hình** tải thành phần này; offline chỉ sẵn sàng khi có cả bộ Klein lẫn bộ lọc. Sau đó có thể chạy `run.ps1 --offline`.
+
+Metadata ảnh ghi backend, revision, fingerprint SHA-256 tổng hợp từ tất cả thành phần model, thông số và precision. Các shard trong bộ Klein chỉ tính là một model, không hiện thành checkpoint SD1.5 riêng. ZIP kèm model chứa các model đã cài, kể cả bộ Klein đầy đủ; không yêu cầu phải tải SD1.5 nếu chỉ dùng Klein. Bộ model chưa tải được bỏ qua. Muốn ZIP offline đầy đủ, dùng thêm `--include-cache` để có bộ lọc đầu ra.
+
+Kiểm thử có pipeline Klein thực với trọng số ngẫu nhiên rất nhỏ trên CPU, kiểm tra denoising/giải mã, seed, routing, negative embeddings, bộ lọc, download/rollback và metadata. Chưa kiểm chứng chất lượng/tốc độ của checkpoint 4B đầy đủ trên GPU. Creative Director vẫn dùng Ollama như trước; FLUX thay phần tạo ảnh.
 
 ## Cấu trúc và dữ liệu
 
@@ -82,3 +99,4 @@ Test tích hợp cần `AZURAI_TEST_DATABASE_URL` trỏ tới PostgreSQL kiểm 
 - `No pyvenv.cfg file`: dừng UI, chạy lại `setup.ps1`.
 - Thiếu cấu hình PostgreSQL hoặc Ollama: kiểm tra `.env` và dịch vụ đang chạy.
 - Thiếu tokenizer/config: tắt offline và chuẩn bị mô hình lại.
+

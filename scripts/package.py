@@ -3,11 +3,14 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 FILES = [
+    "azurai/flux.py", "tests/test_flux.py",
     "config/prompts.json",
     "scripts/start_database.py",
     "tests/test_start_database.py",
@@ -30,12 +33,27 @@ def build_archive(destination, include_models=True, include_cache=False):
     files = [ROOT / name for name in FILES]
     if include_models:
         registry = json.loads((ROOT / "config" / "models.json").read_text(encoding="utf-8"))
+        installed = False
         for entry in registry:
             model = (ROOT / entry["path"]).resolve()
             if not model.is_relative_to(ROOT):
                 raise ValueError("Checkpoint đóng gói phải nằm trong thư mục dự án.")
-            files.append(model)
-        files += sorted((ROOT / "models").rglob("*.safetensors"))
+            if not model.exists():
+                continue
+            installed = True
+            if entry.get("backend") == "flux2-klein":
+                from azurai.flux import validate
+                validate({**entry, "path": model})
+                components = [path for path in model.rglob("*") if path.is_file() and ".cache" not in path.parts]
+                if any(not path.resolve().is_relative_to(ROOT) for path in components):
+                    raise ValueError("Thành phần model nằm ngoài thư mục dự án.")
+                files.extend(components)
+            else:
+                files.append(model)
+        checkpoints = sorted((ROOT / "models").rglob("*.safetensors"))
+        if not installed and not checkpoints:
+            raise FileNotFoundError("Chưa có model trên máy. Dùng --without-models để đóng gói mã nguồn.")
+        files += checkpoints
     if include_cache:
         files += [path for path in (ROOT / ".cache" / "huggingface").rglob("*")
                   if path.is_file() and ("snapshots" in path.parts or "refs" in path.parts)
@@ -86,3 +104,4 @@ if __name__ == "__main__":
     parser.add_argument("--include-cache", action="store_true", help="Include cached snapshots for offline use")
     args = parser.parse_args()
     build_archive(args.output, not args.without_models, args.include_cache)
+

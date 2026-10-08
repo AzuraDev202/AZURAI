@@ -7,5 +7,19 @@
     "config": "stable-diffusion-v1-5/stable-diffusion-v1-5",
     "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
     "download_url": "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/451f4fe16113bff5a5d2269ed5ad43b0592e9a14/v1-5-pruned-emaonly.safetensors"
+  },
+  {
+    "id": "flux2-klein-base-4b",
+    "task": "text-to-image",
+    "name": "FLUX.2 Klein Base 4B",
+    "backend": "flux2-klein",
+    "path": "models/text2img/flux2-klein-base-4b",
+    "config": "black-forest-labs/FLUX.2-klein-base-4B",
+    "revision": "a3b4f4849157f664bdbc776fd7453c2783562f4d",
+    "optional": true,
+    "defaults": {
+      "steps": 50,
+      "guidance": 4
+    }
   }
 ]
