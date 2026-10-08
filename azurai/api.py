@@ -54,7 +54,7 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
 class Settings(BaseModel):
     selection: str = AUTO
     mode: Literal["Tự động", "Tiết kiệm VRAM", "Offload theo mô-đun", "CPU"] = AUTO
-    precision: Literal["Tự động", "FP32", "FP16"] = AUTO
+    precision: Literal["Tự động", "FP32", "FP16", "BF16"] = AUTO
     offline: bool = False
 
 
@@ -309,7 +309,7 @@ def image_feedback(filename: str, data: Feedback, request: Request):
 @app.get("/api/options")
 def options():
     return {"models": [{"id": AUTO, "name": AUTO}] + [
-        {"id": entry["id"], "name": entry["name"]} for entry in SERVICE.models()],
+        {"id": entry["id"], "name": entry["name"], "defaults": entry.get("defaults", {})} for entry in SERVICE.models()],
         "modes": MEMORY_MODES, "precisions": PRECISIONS, "presets": SIZE_PRESETS,
         "offline": DEFAULT_OFFLINE}
 
@@ -380,14 +380,20 @@ def device(selection: str = AUTO, mode: str = AUTO, precision: str = AUTO, offli
     if mode not in MEMORY_MODES or precision not in PRECISIONS:
         raise HTTPException(400, "Chế độ bộ nhớ hoặc precision không hợp lệ.")
     info = hardware()
-    report, suggested_size = SERVICE.inspect(selection, mode, precision, offline)
+    try:
+        report, suggested_size = SERVICE.inspect(selection, mode, precision, offline)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     selected = None
+    requested = next((e for e in SERVICE.models() if e["id"] == selection), {})
+    backend = requested.get("backend", "sd15")
     try:
         entry, _ = SERVICE.select(selection, offline)
+        backend = entry.get("backend", "sd15")
         selected = {"name": entry["name"], "path": str(entry["path"]), "ready": not SERVICE.assets(entry)}
     except (ValueError, OSError, SafetensorError) as exc:
         report += f"\n\n{exc}"
-    return {"hardware": info, "policy": memory_policy(info, mode, precision), "selected": selected,
+    return {"hardware": info, "policy": memory_policy(info, mode, precision, backend), "selected": selected,
             "report": report.replace("**", "").replace("`", ""), "suggested_size": suggested_size}
 
 
@@ -526,3 +532,4 @@ def main():
     SERVICE = InferenceService(args.model, args.config)
     DEFAULT_OFFLINE = args.offline
     uvicorn.run(app, host="127.0.0.1", port=args.port)
+

@@ -1,4 +1,5 @@
 "use strict";
+let modelDefaults = {};
 const $ = (id) => document.getElementById(id);
 let presets = {}, aspect = "square", busy = false, latestDevice = null, statusController = null;
 let currentUser = null, authMode = "login", pendingView = null, studioReady = false;
@@ -77,6 +78,7 @@ async function refreshDevice() {
 async function loadOptions(initial = false) {
   const previous = settings();
   const data = await api("/api/options");
+  modelDefaults = Object.fromEntries(data.models.map(model => [model.id, model.defaults || {}]));
   fillSelect("selection", data.models, previous.selection);
   fillSelect("mode", data.modes, previous.mode);
   fillSelect("precision", data.precisions, previous.precision);
@@ -179,7 +181,13 @@ document.querySelectorAll("[data-aspect]").forEach((button) => {
 });
 $("resolution").onchange = applyPreset;
 for (const id of ["width", "height"]) $(id).oninput = () => { aspect = null; updateSize(); };
-for (const id of ["selection", "mode", "precision", "offline"]) $(id).onchange = refreshDevice;
+for (const id of ["mode", "precision", "offline"]) $(id).onchange = refreshDevice;
+$("selection").onchange = () => {
+  const defaults = {steps: 20, guidance: 7, ...modelDefaults[$("selection").value]};
+  if (defaults.steps) $("steps").value = defaults.steps;
+  if (defaults.guidance) $("guidance").value = defaults.guidance;
+  refreshDevice();
+};
 $("recommend").onclick = () => {
   if (!latestDevice) return;
   const size = latestDevice.suggested_size;
@@ -457,3 +465,4 @@ window.addEventListener("DOMContentLoaded", async () => {
     else if (requested !== "home") { pendingView = requested; openAuth(); }
   } catch (error) { $("homeGreeting").textContent = error.message; }
 });
+
