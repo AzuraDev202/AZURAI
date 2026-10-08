@@ -10,6 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 FILES = [
+    "azurai/desktop.py", "desktop_entry.py", "requirements-desktop.txt", "build-desktop.ps1",
+    "desktop/AZURAI.spec", "desktop/installer.iss", ".github/workflows/desktop.yml", "tests/test_desktop.py",
     "azurai/flux.py", "tests/test_flux.py",
     "config/prompts.json",
     "scripts/start_database.py",

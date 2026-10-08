@@ -6,7 +6,7 @@ from contextlib import contextmanager
 import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
-from pathlib import Path
+from .paths import ROOT
 
 
 SCHEMA = """
@@ -81,7 +81,7 @@ class Database:
         self._lock = threading.Lock()
 
     def url(self):
-        load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+        load_dotenv(ROOT / ".env", override=False)
         dsn = self.dsn or os.environ.get("AZURAI_DATABASE_URL", "").strip()
         if not isinstance(dsn, str) or not dsn.startswith(("postgresql://", "postgres://")):
             raise RuntimeError("Cần cấu hình AZURAI_DATABASE_URL bằng URL PostgreSQL. Không còn sử dụng SQLite.")
@@ -97,3 +97,4 @@ class Database:
                     db.commit()
                     self._initialized = True
             yield db
+

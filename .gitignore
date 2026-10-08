@@ -14,3 +14,7 @@ data/
 *.dump
 
 models/text2img/flux2-klein-base-4b/
+
+.desktop-venv/
+build/
+dist/
