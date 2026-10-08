@@ -1,0 +1,35 @@
+name: Windows desktop
+on:
+  push:
+    branches: [master, feat/desktop-app]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [cpu, cuda]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build desktop executable and installer
+        shell: pwsh
+        run: |
+          $env:PATH += ';C:\Program Files (x86)\Inno Setup 6'
+          .\build-desktop.ps1 -Flavor ${{ matrix.flavor }}
+          if (-not (Test-Path 'dist\AZURAI-Setup-${{ matrix.flavor }}.exe')) { throw 'Installer missing.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AZURAI-Windows-${{ matrix.flavor }}
+          path: dist/AZURAI-Setup-${{ matrix.flavor }}.exe
+          if-no-files-found: error
+          retention-days: 30

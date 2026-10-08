@@ -100,3 +100,26 @@ Test tích hợp cần `AZURAI_TEST_DATABASE_URL` trỏ tới PostgreSQL kiểm 
 - Thiếu cấu hình PostgreSQL hoặc Ollama: kiểm tra `.env` và dịch vụ đang chạy.
 - Thiếu tokenizer/config: tắt offline và chuẩn bị mô hình lại.
 
+
+## App desktop Windows
+
+App mở Studio trong cửa sổ AZURAI riêng, giữ luồng Creative Director và FLUX.2 Klein.
+Có hai bộ cài Windows x64: **cuda** cho GPU NVIDIA tương thích CUDA 11.8 và **cpu** cho máy không có NVIDIA (tạo ảnh bằng CPU sẽ chậm). Bộ cài đã chứa Python và thư viện; người dùng không cần cài Python.
+
+1. Mở tab **Actions → Windows desktop**, chọn lần build thành công mới nhất và tải artifact `AZURAI-Windows-cuda` hoặc `AZURAI-Windows-cpu`.
+2. Giải nén artifact, chạy `AZURAI-Setup-cuda.exe` hoặc `AZURAI-Setup-cpu.exe`.
+3. Mở AZURAI từ Desktop hoặc Start Menu. Nhập URL PostgreSQL đang chạy và tên model Ollama trong màn hình thiết lập đầu tiên.
+4. Đăng nhập/đăng ký trong Studio, chọn FLUX.2 Klein, tắt offline, bấm **Tải checkpoint → Chuẩn bị mô hình**.
+
+App cần Microsoft **[WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)** và PostgreSQL/Ollama đã chạy (như bản web hiện tại). Bộ cài không chứa PostgreSQL server, Ollama hoặc trọng số model. Kết nối tới database cũ sẽ giữ tài khoản, dự án và lịch sử cũ. Tên model Ollama phải khớp model đã tải trên máy.
+
+Dữ liệu desktop nằm ở `%LOCALAPPDATA%\AZURAI`: `.env`, `config`, `models`, `outputs`, `.cache`, `logs`. Cập nhật/gỡ app không xóa thư mục này. Để sử dụng model đã tải ở bản mã nguồn, sao chép thư mục model vào `models` tại đây hoặc chỉnh `config/models.json` thành đường dẫn tuyệt đối. Shortcut **Thiết lập AZURAI** mở lại màn hình chỉnh kết nối; có thể sửa `.env` để cấu hình thêm `AZURAI_DIRECTOR_URL`. `AZURAI_DATA_DIR` cho phép chọn vị trí dữ liệu khác trước khi khởi động app.
+
+Build trên Windows với Python 3.12 x64:
+
+```powershell
+.\build-desktop.ps1 -Flavor cuda
+# Hoặc: .\build-desktop.ps1 -Flavor cpu
+```
+
+Kết quả: `dist\AZURAI\AZURAI.exe` cùng toàn bộ thư mục `_internal`; giữ nguyên cả thư mục nếu dùng portable. Khi có **Inno Setup 6** (`ISCC.exe` trong PATH), script tạo thêm bộ cài `dist\AZURAI-Setup-<flavor>.exe`. CI build cả hai phiên bản, chạy smoke test trên executable để kiểm tra resource và import thực tế FLUX/Qwen/safety checker. Smoke test không xác nhận chất lượng ảnh với trọng số 4B hoặc giao diện hiển thị trên máy người dùng. Bộ cài chưa ký chứng chỉ số.
